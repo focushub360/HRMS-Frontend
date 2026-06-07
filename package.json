@@ -1,0 +1,22 @@
+{
+  "name": "hrm-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev:super-admin": "cd super-admin && npm run dev",
+    "dev:tenant-app": "cd tenant-app && npm run dev",
+    "dev:all": "concurrently \"npm run dev:super-admin\" \"npm run dev:tenant-app\"",
+    "build:super-admin": "cd super-admin && npm run build",
+    "build:tenant-app": "cd tenant-app && npm run build",
+    "build:all": "npm run build:super-admin && npm run build:tenant-app",
+    "install:all": "cd super-admin && npm install && cd ../tenant-app && npm install",
+    "install:deps": "npm install && cd super-admin && npm install && cd ../tenant-app && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "dependencies": {
+    "lts": "^2.0.0"
+  }
+}

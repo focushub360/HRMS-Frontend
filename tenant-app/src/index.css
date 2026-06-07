@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+@theme {
+  /* Extend Colors */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+
+  /* Gray colors for light mode */
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+
+  /* Dark mode colors - using @custom-variant */
+  --color-dark-bg: #111827;
+  --color-dark-surface: #1f2937;
+  --color-dark-border: #374151;
+  --color-dark-text: #f9fafb;
+
+  /* Fonts */
+  --font-sans: 'Inter', system-ui, sans-serif;
+
+  /* Animations */
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slide-in {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+
+  /* Animation utilities */
+  --animate-fade-in: fade-in 0.5s ease-in-out;
+  --animate-slide-in: slide-in 0.3s ease-out;
+}
+
+/* Enable dark mode with class strategy */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Base Styles */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+  }
+
+  body {
+    background-color: var(--color-gray-50);
+    color: var(--color-gray-900);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  .dark body {
+    background-color: var(--color-dark-bg);
+    color: var(--color-dark-text);
+  }
+}
+
+/* Components */
+@layer components {
+  .sidebar-transition {
+    transition: all 0.3s ease-in-out;
+  }
+
+  .glass-effect {
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .dark .glass-effect {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* Dark-mode overrides for common Tailwind utility classes so text remains readable
+     when components use neutral gray utility classes without dark: variants. */
+  .dark .text-gray-900 { color: var(--color-dark-text) !important; }
+  .dark .text-gray-800 { color: #f3f4f6 !important; }
+  .dark .text-gray-700 { color: #e5e7eb !important; }
+  .dark .text-gray-600 { color: #cbd5e1 !important; }
+  .dark .text-gray-500 { color: #94a3b8 !important; }
+  .dark .text-gray-400 { color: #64748b !important; }
+  .dark .text-gray-300 { color: #475569 !important; }
+  .dark .text-gray-200 { color: #334155 !important; }
+  .dark .text-gray-100 { color: #f8fafc !important; }
+
+  /* Common background/border overrides used across the app */
+  .dark .bg-white { background-color: var(--color-dark-surface) !important; }
+  .dark .bg-gray-50 { background-color: #0b1220 !important; }
+  .dark .bg-gray-100 { background-color: #0f1724 !important; }
+
+  .dark .border-gray-200 { border-color: var(--color-dark-border) !important; }
+  .dark .border-gray-100 { border-color: rgba(255,255,255,0.06) !important; }
+
+  /* Ensure links and interactive text remain legible */
+  .dark a, .dark a:hover, .dark a:active { color: #93c5fd; }
+  .dark .group-hover\:text-gray-500:hover { color: #94a3b8 !important; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-gray-100);
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: var(--color-gray-800);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-primary-300);
+  border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--color-primary-600);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-400);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-500);
+}

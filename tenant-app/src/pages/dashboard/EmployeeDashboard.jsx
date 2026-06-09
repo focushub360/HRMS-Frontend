@@ -221,6 +221,18 @@ const EmployeeDashboard = () => {
     return Number((diffMs / (1000 * 60 * 60)).toFixed(2));
   };
 
+  const calculateSessionHours = (checkInTime, checkOutTime) => {
+    if (!checkInTime || !checkOutTime) return 0;
+    const diffMs = new Date(checkOutTime).getTime() - new Date(checkInTime).getTime();
+    if (!Number.isFinite(diffMs) || diffMs <= 0) return 0;
+    return Number((diffMs / (1000 * 60 * 60)).toFixed(2));
+  };
+
+  const getSessionWorkingHours = (session) => {
+    const calculated = calculateSessionHours(session?.checkIn, session?.checkOut);
+    return calculated > 0 ? calculated : Number(session?.workingHours || 0);
+  };
+
   useEffect(() => {
     const activeCheckIn = attendanceStatus?.activeSession?.checkIn || attendanceStatus?.checkInTime;
     if (!activeCheckIn) {
@@ -648,7 +660,7 @@ const EmployeeDashboard = () => {
   const attendanceBadgeLabel = activeShift ? 'In Progress' : (latestCompletedSession ? 'Completed' : 'Pending');
   const displayedWorkingHours = activeShift
     ? liveWorkingHours
-    : Number(latestCompletedSession?.workingHours || 0);
+    : getSessionWorkingHours(latestCompletedSession);
   const actionShift = activeShift ? null : nextCheckInShift;
   const actionLabel = activeShift
     ? 'Check Out'
@@ -845,7 +857,7 @@ const EmployeeDashboard = () => {
                           {formatTime(session.checkOut)}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                          {formatWorkingHours(session.workingHours, { emptyValue: '0h 0m' })}
+                          {formatWorkingHours(getSessionWorkingHours(session), { emptyValue: '0h 0m' })}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">Completed</span>

@@ -10,6 +10,7 @@ import PermissionModal from './PermissionModal';
 import { useNavigate } from 'react-router-dom';
 import { attendanceService, permissionService, shiftService, locationService } from '../../services/auth';
 import { useAuth } from '../../context/AuthContext';
+import { formatWorkingHours } from '../../utils/time';
 
 /*
  * NOTE: This file contains a large number of optional UI helpers.
@@ -399,7 +400,7 @@ const Attendance = () => {
     const presentDays = attendanceData.filter(a => 
       a.status === 'present' || a.status === 'half-day' || a.status === 'present-with-permission'
     ).length;
-    const totalWorkingHours = attendanceData.reduce((sum, record) => sum + (record.workingHours || 0), 0);
+    const totalWorkingHours = attendanceData.reduce((sum, record) => sum + (Number(record.workingHours) || 0), 0);
     const averageHours = presentDays > 0 ? (totalWorkingHours / presentDays).toFixed(1) : 0;
 
     setStats(prev => ({
@@ -779,7 +780,7 @@ const Attendance = () => {
                 {hasPendingShift ? 'All shifts completed' : 'Completed for today'}
               </span>
               <span className="text-sm text-gray-500">
-                {todayAttendance?.workingHours ? `${todayAttendance.workingHours}h worked` : ''}
+                {todayAttendance?.workingHours ? `${formatWorkingHours(todayAttendance.workingHours)} worked` : ''}
               </span>
             </div>
           )}
@@ -840,7 +841,7 @@ const Attendance = () => {
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-blue-700">Total Working Hours:</span>
                   <span className="text-lg font-bold text-blue-900">
-                    {todayAttendance.workingHours}h
+                    {formatWorkingHours(todayAttendance.workingHours)}
                   </span>
                 </div>
               </div>
@@ -903,7 +904,7 @@ const Attendance = () => {
               
               <div className="text-center p-4 bg-blue-50 rounded-lg">
                 <div className="text-2xl font-bold text-blue-600 mb-1">
-                  {stats.workingHours}
+                  {formatWorkingHours(stats.workingHours, { emptyValue: '0h 0m' })}
                 </div>
                 <p className="text-sm font-medium text-blue-700">Total Hours</p>
                 <ScheduleIcon className="w-5 h-5 text-blue-600 mx-auto mt-1" />
@@ -911,7 +912,7 @@ const Attendance = () => {
               
               <div className="text-center p-4 bg-purple-50 rounded-lg">
                 <div className="text-2xl font-bold text-purple-600 mb-1">
-                  {stats.averageHours}
+                  {formatWorkingHours(stats.averageHours, { emptyValue: '0h 0m' })}
                 </div>
                 <p className="text-sm font-medium text-purple-700">Avg Hours/Day</p>
                 <TrendingUpIcon className="w-5 h-5 text-purple-600 mx-auto mt-1" />
@@ -1053,7 +1054,7 @@ const Attendance = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.workingHours > 0 ? `${record.workingHours}h` : '--'}
+                      {formatWorkingHours(record.workingHours)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {record.shiftName ? (

@@ -330,6 +330,15 @@ export const attendanceService = {
       throw error;
     }
   },
+  updateAttendanceTime: async (id, data) => {
+    try {
+      const response = await api.put(`/attendance/${id}/time`, data);
+      return response.data;
+    } catch (error) {
+      console.error('Update attendance time error:', error);
+      throw error;
+    }
+  },
    getTodayPendingShifts: async () => {
     try {
       const response = await api.get('/attendance/today-shifts');

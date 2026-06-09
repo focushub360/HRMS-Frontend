@@ -3,7 +3,9 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Modal from '../../components/ui/Modal';
-import { attendanceService, employeeService, permissionService } from '../../services/auth';
+import { attendanceService, employeeService, permissionService, shiftService, locationService } from '../../services/auth';
+import { useAuth } from '../../context/AuthContext';
+import { formatWorkingHours } from '../../utils/time';
 
 import NightsStayIcon from '@mui/icons-material/NightsStay';  
 import WbSunnyIcon from '@mui/icons-material/WbSunny';  
@@ -18,10 +20,14 @@ import PersonIcon from '@mui/icons-material/Person';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import EditIcon from '@mui/icons-material/Edit';
 
 const AttendanceReport = () => {
+  const { user } = useAuth();
   const [attendance, setAttendance] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [summary, setSummary] = useState([]);
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,10 +37,28 @@ const AttendanceReport = () => {
   const [selectedEmployee, setSelectedEmployee] = useState('all');
   const [dateFilter, setDateFilter] = useState('');
   const [datePreset, setDatePreset] = useState('all'); // all, today, yesterday, last7, thisMonth
-  const [dateRange, setDateRange] = useState({ start: null, end: null });
+  const [dateRange, setDateRange] = useState(() => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const start = `${yyyy}-${mm}-01`;
+    const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const dd = String(endDate.getDate()).padStart(2, '0');
+    return { start, end: `${yyyy}-${mm}-${dd}` };
+  });
   const [statusFilter, setStatusFilter] = useState('all');
   const [detailModal, setDetailModal] = useState({ isOpen: false, record: null });
-  const [mobileView, setMobileView] = useState('stats'); // 'stats', 'summary', 'details'
+  const [editModal, setEditModal] = useState({ isOpen: false, record: null });
+  const [editForm, setEditForm] = useState({ checkIn: '', checkOut: '', status: 'present', dayType: 'full-day', shiftId: '', locationId: '', reason: '' });
+  const [editError, setEditError] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [reportEdit, setReportEdit] = useState({ isEditing: false, record: null });
+  const [reportEditForm, setReportEditForm] = useState({ checkIn: '', checkOut: '', status: 'present', dayType: 'full-day', shiftId: '', locationId: '', reason: '' });
+  const [reportEditError, setReportEditError] = useState('');
+  const [savingReportEdit, setSavingReportEdit] = useState(false);
+  const [editAuditModal, setEditAuditModal] = useState({ isOpen: false, row: null, audit: null });
+  const [mobileView, setMobileView] = useState('stats'); // 'stats', 'summary', 'details', 'report'
+  const canEditAttendanceTime = user?.role === 'admin' && user?.canEditAttendanceTime === true;
 
   const syncSelectedPeriod = (dateObj) => {
     if (!dateObj || !(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return;
@@ -42,6 +66,73 @@ const AttendanceReport = () => {
     const year = dateObj.getFullYear();
     setSelectedMonth((prev) => (prev === month ? prev : month));
     setSelectedYear((prev) => (prev === year ? prev : year));
+  };
+
+  const toISODate = (dateObj) => {
+    const yyyy = dateObj.getFullYear();
+    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const dd = String(dateObj.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const getSelectedMonthRange = (month = selectedMonth, year = selectedYear) => {
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month, 0);
+    return { start: toISODate(start), end: toISODate(end), syncDate: start };
+  };
+
+  const getPresetDateRange = (preset) => {
+    const now = new Date();
+    const selectedMonthStart = new Date(selectedYear, selectedMonth - 1, 1);
+    const selectedMonthEnd = new Date(selectedYear, selectedMonth, 0);
+    const clampToSelectedMonth = (dateObj) => {
+      if (dateObj < selectedMonthStart) return selectedMonthStart;
+      if (dateObj > selectedMonthEnd) return selectedMonthEnd;
+      return dateObj;
+    };
+
+    if (!preset || preset === 'all') {
+      return getSelectedMonthRange();
+    }
+
+    if (preset === 'today') {
+      const day = toISODate(clampToSelectedMonth(now));
+      return { start: day, end: day, syncDate: clampToSelectedMonth(now) };
+    }
+
+    if (preset === 'yesterday') {
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const clampedYesterday = clampToSelectedMonth(yesterday);
+      const day = toISODate(clampedYesterday);
+      return { start: day, end: day, syncDate: clampedYesterday };
+    }
+
+    if (preset === 'last7') {
+      const start = new Date(now);
+      start.setDate(now.getDate() - 6);
+      const rangeStart = clampToSelectedMonth(start);
+      const rangeEnd = clampToSelectedMonth(now);
+      return { start: toISODate(rangeStart), end: toISODate(rangeEnd), syncDate: rangeEnd };
+    }
+
+    if (preset === 'thisMonth') {
+      return getSelectedMonthRange();
+    }
+
+    return { start: null, end: null, syncDate: null };
+  };
+
+  const applyDatePreset = (preset) => {
+    const range = getPresetDateRange(preset);
+    setDatePreset(preset);
+    setDateFilter('');
+    setDateRange((prev) => (
+      prev.start === range.start && prev.end === range.end
+        ? prev
+        : { start: range.start, end: range.end }
+    ));
+    if (range.syncDate) syncSelectedPeriod(range.syncDate);
   };
 
   const getMonthYearBuckets = (startISO, endISO) => {
@@ -84,10 +175,20 @@ const AttendanceReport = () => {
 
     const entries = responses.flat();
 
+    const buildAttendanceKey = (rec) => {
+      if (rec._id) return String(rec._id);
+      const employeeId = getId(rec.employee || rec.employeeId || rec.user || rec.userId) || 'unknown';
+      const dateKey = normalizeDateString(rec.date || rec.checkIn || rec.createdAt) || '';
+      const shiftId = getId(rec.shift || rec.selectedShift) || rec.shiftName || '';
+      const checkInKey = rec.checkIn ? new Date(rec.checkIn).getTime() : '';
+      const checkOutKey = rec.checkOut ? new Date(rec.checkOut).getTime() : '';
+      return `${employeeId}-${dateKey}-${shiftId}-${checkInKey}-${checkOutKey}`;
+    };
+
     const seen = new Set();
     return (entries || []).filter((rec) => {
       if (!rec) return false;
-      const key = rec._id || `${getId(rec.employee)}-${normalizeDateString(rec.date) || rec.date || ''}`;
+      const key = buildAttendanceKey(rec);
       if (!key) return true;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -108,60 +209,27 @@ const AttendanceReport = () => {
     }
   }, [selectedMonth, selectedYear, selectedEmployee, dateFilter, statusFilter, employees.length, datePreset, dateRange]);
 
-  // compute dateRange whenever datePreset changes
   useEffect(() => {
-    const now = new Date();
-    const toISODate = (d) => {
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-
-    const updateRange = (startISO, endISO) => {
-      setDateRange((prev) => {
-        if (prev.start === startISO && prev.end === endISO) return prev;
-        return { start: startISO, end: endISO };
-      });
+    if (datePreset === 'all' || datePreset === 'thisMonth') {
+      const range = getSelectedMonthRange();
+      setDateRange((prev) => (
+        prev.start === range.start && prev.end === range.end
+          ? prev
+          : { start: range.start, end: range.end }
+      ));
       setDateFilter('');
-    };
-
-    if (!datePreset || datePreset === 'all') {
-      setDateRange((prev) => (prev.start === null && prev.end === null ? prev : { start: null, end: null }));
-      return;
     }
+  }, [selectedMonth, selectedYear]);
 
-    if (datePreset === 'today') {
-      const s = toISODate(now);
-      updateRange(s, s);
-      syncSelectedPeriod(now);
-      return;
-    }
-
-    if (datePreset === 'yesterday') {
-      const y = new Date(now);
-      y.setDate(now.getDate() - 1);
-      const s = toISODate(y);
-      updateRange(s, s);
-      syncSelectedPeriod(y);
-      return;
-    }
-
-    if (datePreset === 'last7') {
-      const start = new Date(now);
-      start.setDate(now.getDate() - 6);
-      updateRange(toISODate(start), toISODate(now));
-      syncSelectedPeriod(now);
-      return;
-    }
-
-    if (datePreset === 'thisMonth') {
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      updateRange(toISODate(start), toISODate(end));
-      syncSelectedPeriod(now);
-      return;
-    }
+  // Keep dateRange in sync if datePreset changes outside the preset buttons.
+  useEffect(() => {
+    const range = getPresetDateRange(datePreset);
+    setDateRange((prev) => (
+      prev.start === range.start && prev.end === range.end
+        ? prev
+        : { start: range.start, end: range.end }
+    ));
+    if (range.syncDate) syncSelectedPeriod(range.syncDate);
   }, [datePreset]);
 
   // if a specific date is set manually, clear preset selection (use custom date)
@@ -180,6 +248,16 @@ const AttendanceReport = () => {
       const rawEmployees = await employeeService.getAll();
       const employeesData = Array.isArray(rawEmployees) ? rawEmployees : (rawEmployees?.data || rawEmployees?.docs || []);
       setEmployees((employeesData || []).filter(emp => emp?.isActive !== false));
+      try {
+        const [shiftData, locationData] = await Promise.all([
+          shiftService.getAll(),
+          locationService.adminGetAll().catch(() => locationService.getAll())
+        ]);
+        setShifts((Array.isArray(shiftData) ? shiftData : (shiftData?.data || shiftData?.docs || [])).filter(shift => shift?.isActive !== false));
+        setLocations(Array.isArray(locationData) ? locationData : (locationData?.data || locationData?.docs || []));
+      } catch (optionError) {
+        console.warn('Failed to load report edit options:', optionError);
+      }
       // wait for employees to be set and then load other data (useEffect will also trigger)
       await loadAttendance();
       await loadSummary();
@@ -235,12 +313,13 @@ const AttendanceReport = () => {
       // Specific date filter has highest priority
       if (dateFilter) {
         const df = normalizeDateString(dateFilter);
-        filtered = filtered.filter(r => normalizeDateString(r.date) === df);
+        filtered = filtered.filter(r => normalizeDateString(r.date || r.checkIn) === df);
       } else if (dateRange && dateRange.start && dateRange.end) {
         const startTime = new Date(dateRange.start).setHours(0,0,0,0);
         const endTime = new Date(dateRange.end).setHours(23,59,59,999);
         filtered = filtered.filter(r => {
-          const t = r.date ? new Date(r.date).getTime() : null;
+          const dateValue = r.date || r.checkIn;
+          const t = dateValue ? new Date(dateValue).getTime() : null;
           return t && t >= startTime && t <= endTime;
         });
       }
@@ -275,12 +354,13 @@ const AttendanceReport = () => {
       let filtered = normalized;
       if (dateFilter) {
         const df = normalizeDateString(dateFilter);
-        filtered = filtered.filter(r => normalizeDateString(r.date) === df);
+        filtered = filtered.filter(r => normalizeDateString(r.date || r.checkIn) === df);
       } else if (dateRange && dateRange.start && dateRange.end) {
         const startTime = new Date(dateRange.start).setHours(0,0,0,0);
         const endTime = new Date(dateRange.end).setHours(23,59,59,999);
         filtered = filtered.filter(r => {
-          const t = r.date ? new Date(r.date).getTime() : null;
+          const dateValue = r.date || r.checkIn;
+          const t = dateValue ? new Date(dateValue).getTime() : null;
           return t && t >= startTime && t <= endTime;
         });
       }
@@ -520,12 +600,161 @@ const AttendanceReport = () => {
     });
   };
 
-  const formatDuration = (hours) => {
+  const formatExcelDate = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return '';
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  const toDateTimeLocalValue = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return offsetDate.toISOString().slice(0, 16);
+  };
+
+  const buildEditForm = (record) => {
+    const normalizedStatus = String(record.status || '').toLowerCase();
+    return {
+      checkIn: toDateTimeLocalValue(record.checkIn),
+      checkOut: toDateTimeLocalValue(record.checkOut),
+      status: normalizedStatus === 'absent' ? 'absent' : 'present',
+      dayType: normalizedStatus === 'half-day' ? 'half-day' : 'full-day',
+      shiftId: getId(record.shift) || '',
+      locationId: getId(record.checkInLocation) || '',
+      reason: ''
+    };
+  };
+
+  const resetEditForm = {
+    checkIn: '',
+    checkOut: '',
+    status: 'present',
+    dayType: 'full-day',
+    shiftId: '',
+    locationId: '',
+    reason: ''
+  };
+
+  const openEditModal = (record) => {
+    setEditError('');
+    setEditForm(buildEditForm(record));
+    setEditModal({ isOpen: true, record });
+  };
+
+  const closeEditModal = () => {
+    setEditModal({ isOpen: false, record: null });
+    setEditError('');
+    setEditForm(resetEditForm);
+  };
+
+  const openReportRowEdit = (record) => {
+    setReportEditError('');
+    setReportEditForm(buildEditForm(record));
+    setReportEdit({ isEditing: true, record });
+  };
+
+  const closeReportRowEdit = () => {
+    setReportEdit({ isEditing: false, record: null });
+    setReportEditError('');
+    setReportEditForm(resetEditForm);
+  };
+
+  const handleSaveAttendanceTime = async (event) => {
+    event?.preventDefault?.();
+    setEditError('');
+
+    if (!editForm.checkIn) {
+      setEditError('Check-in time is required.');
+      return;
+    }
+
+    const checkInDate = new Date(editForm.checkIn);
+    const checkOutDate = editForm.checkOut ? new Date(editForm.checkOut) : null;
+
+    if (Number.isNaN(checkInDate.getTime()) || (checkOutDate && Number.isNaN(checkOutDate.getTime()))) {
+      setEditError('Enter valid date and time values.');
+      return;
+    }
+
+    if (checkOutDate && checkOutDate <= checkInDate) {
+      setEditError('Checkout time must be after check-in time.');
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      await attendanceService.updateAttendanceTime(editModal.record._id, {
+        checkIn: checkInDate.toISOString(),
+        checkOut: checkOutDate ? checkOutDate.toISOString() : null,
+        status: editForm.status,
+        dayType: editForm.dayType,
+        shiftId: editForm.shiftId || null,
+        locationId: editForm.locationId || null,
+        reason: editForm.reason
+      });
+      closeEditModal();
+      await loadAttendance();
+      await loadSummary();
+    } catch (error) {
+      const message = error?.response?.data?.message || error.message || 'Failed to update attendance time.';
+      setEditError(message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleSaveReportAttendanceTime = async () => {
+    setReportEditError('');
+
+    if (!reportEditForm.checkIn) {
+      setReportEditError('Check-in time is required.');
+      return;
+    }
+
+    const checkInDate = new Date(reportEditForm.checkIn);
+    const checkOutDate = reportEditForm.checkOut ? new Date(reportEditForm.checkOut) : null;
+
+    if (Number.isNaN(checkInDate.getTime()) || (checkOutDate && Number.isNaN(checkOutDate.getTime()))) {
+      setReportEditError('Enter valid date and time values.');
+      return;
+    }
+
+    if (checkOutDate && checkOutDate <= checkInDate) {
+      setReportEditError('Checkout time must be after check-in time.');
+      return;
+    }
+
+    setSavingReportEdit(true);
+    try {
+      await attendanceService.updateAttendanceTime(reportEdit.record._id, {
+        checkIn: checkInDate.toISOString(),
+        checkOut: checkOutDate ? checkOutDate.toISOString() : null,
+        status: reportEditForm.status,
+        dayType: reportEditForm.dayType,
+        shiftId: reportEditForm.shiftId || null,
+        locationId: reportEditForm.locationId || null,
+        reason: reportEditForm.reason
+      });
+      closeReportRowEdit();
+      await loadAttendance();
+      await loadSummary();
+    } catch (error) {
+      const message = error?.response?.data?.message || error.message || 'Failed to update attendance time.';
+      setReportEditError(message);
+    } finally {
+      setSavingReportEdit(false);
+    }
+  };
+
+  const getDetailedHoursClassName = (hours) => {
     const num = Number(hours || 0);
-    if (!num || num === 0) return '--';
-    const wholeHours = Math.floor(num);
-    const minutes = Math.round((num - wholeHours) * 60);
-    return `${wholeHours}h ${minutes > 0 ? `${minutes}m` : ''}`.trim();
+    return num > 0 && num !== 8 ? 'text-red-600' : 'text-gray-900';
   };
   // Helper function to get shift icon based on shift name or timing
 const getShiftIcon = (shiftName, isNightShift) => {
@@ -547,6 +776,36 @@ const formatShiftDisplay = (record) => {
     return record.shift.displayName;
   }
   return null;
+};
+
+const getLatestEditAudit = (records = []) => {
+  const audits = records.flatMap((record) => (
+    Array.isArray(record?.attendanceTimeEditAudit)
+      ? record.attendanceTimeEditAudit.map((audit) => ({ ...audit, record }))
+      : []
+  ));
+
+  return audits.sort((a, b) => new Date(b.editedAt || 0).getTime() - new Date(a.editedAt || 0).getTime())[0] || null;
+};
+
+const formatAuditDateTime = (value) => {
+  if (!value) return '--';
+  return `${formatDate(value)} ${formatTime(value)}`;
+};
+
+const buildAuditChanges = (audit) => {
+  if (!audit) return [];
+
+  const pairs = [
+    { label: 'Check In', oldValue: formatAuditDateTime(audit.oldCheckIn), newValue: formatAuditDateTime(audit.newCheckIn) },
+    { label: 'Check Out', oldValue: formatAuditDateTime(audit.oldCheckOut), newValue: formatAuditDateTime(audit.newCheckOut) },
+    { label: 'Status', oldValue: audit.oldStatus || '--', newValue: audit.newStatus || '--' },
+    { label: 'Shift', oldValue: audit.oldShiftName || '--', newValue: audit.newShiftName || '--' },
+    { label: 'Location', oldValue: audit.oldLocationName || '--', newValue: audit.newLocationName || '--' },
+    { label: 'Working Hours', oldValue: formatWorkingHours(audit.oldWorkingHours), newValue: formatWorkingHours(audit.newWorkingHours) }
+  ];
+
+  return pairs.filter((change) => String(change.oldValue) !== String(change.newValue));
 };
 
 const getShiftTiming = (record) => {
@@ -906,6 +1165,57 @@ const getTimeClassName = (highlight) => (
     return true;
   });
 
+  const getReportStatusLabel = (row) => {
+    if (row.status === 'absent') return 'absent';
+    return 'present';
+  };
+
+  const getReportDayLabel = (row) => {
+    return row.dayType === 'half-day' ? 'Halfday' : 'fullday';
+  };
+
+  const reportRows = Object.values(filteredAttendance.reduce((acc, record) => {
+    if (!record || !record.employee) return acc;
+    const employeeId = getId(record.employee) || 'unknown';
+    const dateKey = normalizeDateString(record.date || record.checkIn) || 'unknown';
+    const key = `${employeeId}-${dateKey}`;
+    const status = String(record.status || '').toLowerCase();
+
+    if (!acc[key]) {
+      acc[key] = {
+        key,
+        date: record.date || record.checkIn,
+        employee: record.employee,
+        status: status === 'absent' ? 'absent' : 'present',
+        dayType: status === 'half-day' ? 'half-day' : 'full-day',
+        shiftNames: [],
+        locationNames: [],
+        workingHours: 0,
+        records: []
+      };
+    }
+
+    const row = acc[key];
+    row.records.push(record);
+    if (status === 'absent') row.status = 'absent';
+    if (status === 'half-day') row.dayType = 'half-day';
+
+    const shiftName = formatShiftDisplay(record);
+    if (shiftName && !row.shiftNames.includes(shiftName)) row.shiftNames.push(shiftName);
+
+    const locationName = getSelectedLocationName(record, 'in') || getLocationText(record, 'in', { includeSelectedLocation: false });
+    if (locationName && locationName !== 'Location unavailable' && !row.locationNames.includes(locationName)) {
+      row.locationNames.push(locationName);
+    }
+
+    row.workingHours += Number(record.workingHours) || 0;
+    return acc;
+  }, {})).sort((a, b) => {
+    const dateDiff = new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+    if (dateDiff) return dateDiff;
+    return String(a.employee?.name || '').localeCompare(String(b.employee?.name || ''));
+  });
+
   const overallStats = calculateOverallStats();
 
   const exportToCSV = () => {
@@ -918,7 +1228,7 @@ const getTimeClassName = (highlight) => (
       getLocationText(record, 'in', { includeSelectedLocation: false }),
       formatTime(record.checkOut),
       formatDate(record.checkOut),
-      (Number(record.workingHours) || 0) > 0 ? `${record.workingHours}h` : '--',
+      formatWorkingHours(record.workingHours),
       record.status || 'Unknown',
       record.employee?.department || 'N/A'
     ]);
@@ -934,6 +1244,35 @@ const getTimeClassName = (highlight) => (
     const a = document.createElement('a');
     a.href = url;
     a.download = `attendance-report-${selectedMonth}-${selectedYear}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const exportReportToCSV = () => {
+    const selectedDateLabel = dateFilter ? formatExcelDate(dateFilter) : '';
+    const headers = ['Employee', 'Department', 'Status', 'Day', 'Shift', 'Location', 'Hrs(total working hrs)', 'Edited By'];
+    const dateRow = headers.map(() => selectedDateLabel);
+    const csvData = reportRows.map(row => [
+      row.employee?.name || 'N/A',
+      row.employee?.department || 'N/A',
+      getReportStatusLabel(row),
+      getReportDayLabel(row),
+      row.shiftNames.join(', ') || '--',
+      row.locationNames.join(', ') || '--',
+      formatWorkingHours(row.workingHours),
+      getLatestEditAudit(row.records)?.editedByName || getLatestEditAudit(row.records)?.editedByEmail || '--'
+    ]);
+
+    const escape = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const csvContent = [dateRow.map(escape).join(','), headers.map(escape).join(',')]
+      .concat(csvData.map(row => row.map(escape).join(',')))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendance-report-table-${selectedMonth}-${selectedYear}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -971,6 +1310,16 @@ const getTimeClassName = (highlight) => (
           }`}
         >
           Details
+        </button>
+        <button
+          onClick={() => setMobileView('report')}
+          className={`flex-1 py-2 px-3 text-sm font-medium rounded-md transition-colors ${
+            mobileView === 'report'
+              ? 'bg-white text-primary-600 shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          Report
         </button>
       </div>
     </div>
@@ -1103,31 +1452,31 @@ const getTimeClassName = (highlight) => (
             {/* Date Presets */}
             <div className="mt-3 flex flex-wrap gap-2">
               <button
-                onClick={() => setDatePreset('today')}
+                onClick={() => applyDatePreset('today')}
                 className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'today' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
               >
                 Today
               </button>
               <button
-                onClick={() => setDatePreset('yesterday')}
+                onClick={() => applyDatePreset('yesterday')}
                 className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'yesterday' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
               >
                 Yesterday
               </button>
               <button
-                onClick={() => setDatePreset('last7')}
+                onClick={() => applyDatePreset('last7')}
                 className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'last7' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
               >
                 Last 7 Days
               </button>
               <button
-                onClick={() => setDatePreset('thisMonth')}
+                onClick={() => applyDatePreset('thisMonth')}
                 className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'thisMonth' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
               >
                 This Month
               </button>
               <button
-                onClick={() => { setDatePreset('all'); setDateFilter(''); }}
+                onClick={() => applyDatePreset('all')}
                 className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'all' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
               >
                 All
@@ -1147,7 +1496,7 @@ const getTimeClassName = (highlight) => (
             { value: overallStats.permissionCount, label: 'With Permission', color: 'blue', icon: ScheduleIcon },
             { value: overallStats.absentCount, label: 'Absent', color: 'red', icon: PersonIcon },
             { value: overallStats.workingCount, label: 'Working Now', color: 'yellow', icon: AccessTimeIcon },
-            { value: overallStats.totalWorkingHours, label: 'Total Hours', color: 'purple', icon: ScheduleIcon },
+            { value: formatWorkingHours(overallStats.totalWorkingHours, { emptyValue: '0h 0m' }), label: 'Total Hours', color: 'purple', icon: ScheduleIcon },
             { value: `${overallStats.attendanceRate}%`, label: 'Attendance Rate', color: 'indigo', icon: TrendingUpIcon },
           ].map((stat, index) => (
             <Card key={index} className="p-3 sm:p-4 shadow-sm">
@@ -1203,6 +1552,8 @@ const getTimeClassName = (highlight) => (
     const totalDays = purePresentDays + permissionCount + halfDays;
     const effectiveDays = purePresentDays + (permissionCount * 0.75) + (halfDays * 0.5);
     const attendanceRate = totalDays > 0 ? ((effectiveDays / totalDays) * 100).toFixed(1) : 0;
+    const totalWorkingHours = Number(item.totalWorkingHours || 0);
+    const shouldHighlightTodayHours = datePreset === 'today' && totalWorkingHours < 8;
 
     return (
       <tr key={item._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -1236,7 +1587,13 @@ const getTimeClassName = (highlight) => (
           <span className="font-semibold text-blue-600">{permissionCount}</span>
         </td>
         <td className="px-3 py-2 whitespace-nowrap text-sm text-center">
-          <span className="font-semibold text-purple-600">{formatDuration(item.totalWorkingHours)}</span>
+          <span className={`inline-block rounded-md px-2 py-1 font-semibold ${
+            shouldHighlightTodayHours
+              ? 'border border-red-300 bg-red-100 text-red-700'
+              : 'text-purple-600'
+          }`}>
+            {formatWorkingHours(totalWorkingHours)}
+          </span>
         </td>
         <td className="px-3 py-2 whitespace-nowrap text-sm text-center hidden xl:table-cell">
           <span className={`font-semibold ${
@@ -1367,8 +1724,8 @@ const getTimeClassName = (highlight) => (
         )}
       </td>
       <td className="px-6 py-4 whitespace-nowrap">
-        <div className="text-sm font-semibold text-gray-900">
-          {record.workingHours > 0 ? formatDuration(record.workingHours) : '--'}
+        <div className={`text-sm font-semibold ${getDetailedHoursClassName(record.workingHours)}`}>
+          {formatWorkingHours(record.workingHours)}
         </div>
       </td>
       <td className="px-6 py-4 whitespace-nowrap">
@@ -1391,13 +1748,24 @@ const getTimeClassName = (highlight) => (
         )}
       </td>
       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-        <button
-          onClick={() => setDetailModal({ isOpen: true, record })}
-          className="text-primary-600 hover:text-primary-900 flex items-center space-x-1"
-        >
-          <VisibilityIcon className="w-4 h-4" />
-          <span>View</span>
-        </button>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={() => setDetailModal({ isOpen: true, record })}
+            className="text-primary-600 hover:text-primary-900 flex items-center space-x-1"
+          >
+            <VisibilityIcon className="w-4 h-4" />
+            <span>View</span>
+          </button>
+          {canEditAttendanceTime && (
+            <button
+              onClick={() => openEditModal(record)}
+              className="text-blue-600 hover:text-blue-900 flex items-center space-x-1"
+            >
+              <EditIcon className="w-4 h-4" />
+              <span>Edit</span>
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -1498,8 +1866,8 @@ const getTimeClassName = (highlight) => (
           <div className="flex justify-between items-center pt-2 border-t border-gray-200">
             <div>
               <div className="text-gray-500 text-sm">Working Hours</div>
-              <div className="font-semibold text-gray-900">
-                {record.workingHours > 0 ? formatDuration(record.workingHours) : '--'}
+              <div className={`font-semibold ${getDetailedHoursClassName(record.workingHours)}`}>
+                {formatWorkingHours(record.workingHours)}
               </div>
             </div>
             {recordPermissions.length > 0 && (
@@ -1523,6 +1891,18 @@ const getTimeClassName = (highlight) => (
               </div>
             )}
           </div>
+          {canEditAttendanceTime && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => openEditModal(record)}
+                className="inline-flex items-center space-x-1 text-sm font-medium text-blue-600 hover:text-blue-800"
+              >
+                <EditIcon className="w-4 h-4" />
+                <span>Edit Attendance Time</span>
+              </button>
+            </div>
+          )}
         </div>
       </Card>
     );
@@ -1542,6 +1922,258 @@ const getTimeClassName = (highlight) => (
           </Card.Content>
         </Card>
       )}
+
+      {(mobileView === 'report' || !mobileView) && (
+        <Card className={`${mobileView ? 'block' : 'hidden lg:block'} shadow-sm`}>
+          <Card.Header>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <Card.Title className="text-lg font-semibold text-gray-900">
+                Report ({reportRows.length} rows)
+              </Card.Title>
+              <Button
+                onClick={exportReportToCSV}
+                variant="outline"
+                size="sm"
+                className="flex items-center space-x-2"
+              >
+                <DownloadIcon className="w-4 h-4" />
+                <span>Export CSV</span>
+              </Button>
+            </div>
+          </Card.Header>
+          <Card.Content>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-800">
+                  {dateFilter && (
+                    <tr>
+                      {['employee', 'department', 'status', 'day', 'shift', 'location', 'hours', 'editedBy', 'actions'].map((column) => (
+                        <th key={column} className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-blue-200">
+                          {column === 'actions' ? '' : formatExcelDate(dateFilter)}
+                        </th>
+                      ))}
+                    </tr>
+                  )}
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Employee</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Department</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Day</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Shift</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Location</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Hrs(total working hrs)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Edited By</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                  {reportRows.map((row) => {
+                    const editableRecord = row.records[0];
+                    const latestAudit = getLatestEditAudit(row.records);
+                    const isEditingRow = Boolean(
+                      editableRecord
+                      && reportEdit.isEditing
+                      && String(reportEdit.record?._id) === String(editableRecord._id)
+                    );
+                    const controlClassName = 'w-36 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500';
+
+                    return (
+                      <tr key={row.key} className={isEditingRow ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">{row.employee?.name || 'Unknown'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">{row.employee?.department || 'N/A'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
+                          {isEditingRow ? (
+                            <select
+                              value={reportEditForm.status}
+                              onChange={(e) => setReportEditForm((prev) => ({ ...prev, status: e.target.value }))}
+                              className={controlClassName}
+                            >
+                              <option value="present" className="dark:bg-gray-800 dark:text-gray-100">present</option>
+                              <option value="absent" className="dark:bg-gray-800 dark:text-gray-100">absent</option>
+                            </select>
+                          ) : getReportStatusLabel(row)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
+                          {isEditingRow ? (
+                            <select
+                              value={reportEditForm.dayType}
+                              onChange={(e) => setReportEditForm((prev) => ({ ...prev, dayType: e.target.value }))}
+                              className={controlClassName}
+                            >
+                              <option value="full-day" className="dark:bg-gray-800 dark:text-gray-100">fullday</option>
+                              <option value="half-day" className="dark:bg-gray-800 dark:text-gray-100">Halfday</option>
+                            </select>
+                          ) : getReportDayLabel(row)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
+                          {isEditingRow ? (
+                            <select
+                              value={reportEditForm.shiftId}
+                              onChange={(e) => setReportEditForm((prev) => ({ ...prev, shiftId: e.target.value }))}
+                              className={controlClassName}
+                            >
+                              <option value="" className="dark:bg-gray-800 dark:text-gray-100">No shift</option>
+                              {shifts.map((shift) => (
+                                <option key={shift._id} value={shift._id} className="dark:bg-gray-800 dark:text-gray-100">
+                                  {shift.displayName || shift.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : row.shiftNames.join(', ') || '--'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
+                          {isEditingRow ? (
+                            <select
+                              value={reportEditForm.locationId}
+                              onChange={(e) => setReportEditForm((prev) => ({ ...prev, locationId: e.target.value }))}
+                              className={controlClassName}
+                            >
+                              <option value="" className="dark:bg-gray-800 dark:text-gray-100">No location</option>
+                              {locations.map((location) => (
+                                <option key={location._id} value={location._id} className="dark:bg-gray-800 dark:text-gray-100">
+                                  {location.name || location.locationName || location.address || 'Location'}
+                                </option>
+                              ))}
+                            </select>
+                          ) : row.locationNames.join(', ') || '--'}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{formatWorkingHours(row.workingHours)}</td>
+                        <td className="px-4 py-3 text-sm whitespace-nowrap">
+                          {latestAudit ? (
+                            <button
+                              type="button"
+                              onClick={() => setEditAuditModal({ isOpen: true, row, audit: latestAudit })}
+                              className="text-left text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100"
+                            >
+                              <span className="block font-medium">{latestAudit.editedByName || latestAudit.editedByEmail || 'Admin'}</span>
+                              <span className="block text-xs text-gray-500 dark:text-gray-400">{formatDate(latestAudit.editedAt)}</span>
+                            </button>
+                          ) : (
+                            <span className="text-xs text-gray-400">--</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm whitespace-nowrap">
+                          {canEditAttendanceTime && editableRecord ? (
+                            isEditingRow ? (
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center space-x-3">
+                                  <button
+                                    type="button"
+                                    onClick={handleSaveReportAttendanceTime}
+                                    disabled={savingReportEdit}
+                                    className="text-green-700 dark:text-green-300 hover:text-green-900 dark:hover:text-green-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {savingReportEdit ? 'Saving...' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={closeReportRowEdit}
+                                    disabled={savingReportEdit}
+                                    className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                                {reportEditError && (
+                                  <span className="max-w-48 whitespace-normal text-xs text-red-600 dark:text-red-300">{reportEditError}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => openReportRowEdit(editableRecord)}
+                                className="inline-flex items-center space-x-1 text-blue-600 hover:text-blue-900"
+                              >
+                                <EditIcon className="w-4 h-4" />
+                                <span>Edit</span>
+                              </button>
+                            )
+                          ) : (
+                            <span className="text-xs text-gray-400">--</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {reportRows.length === 0 && (
+              <div className="text-center py-12">
+                <ScheduleIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500">No report data found</p>
+                <p className="text-sm text-gray-400 mt-2">Try adjusting your filters</p>
+              </div>
+            )}
+          </Card.Content>
+        </Card>
+      )}
+
+      <Modal
+        isOpen={editAuditModal.isOpen}
+        onClose={() => setEditAuditModal({ isOpen: false, row: null, audit: null })}
+        title="Edit Details"
+        size="lg"
+      >
+        {editAuditModal.audit && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Edited By</div>
+                  <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {editAuditModal.audit.editedByName || editAuditModal.audit.editedByEmail || 'Admin'}
+                  </div>
+                  {editAuditModal.audit.editedByEmail && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{editAuditModal.audit.editedByEmail}</div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Edited At</div>
+                  <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {formatAuditDateTime(editAuditModal.audit.editedAt)}
+                  </div>
+                </div>
+              </div>
+              {editAuditModal.audit.reason && (
+                <div className="mt-3">
+                  <div className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Reason</div>
+                  <div className="mt-1 text-sm text-gray-800 dark:text-gray-100">{editAuditModal.audit.reason}</div>
+                </div>
+              )}
+            </div>
+
+            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-800">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-blue-200">Field</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-blue-200">Before</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-blue-200">After</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
+                  {buildAuditChanges(editAuditModal.audit).map((change) => (
+                    <tr key={change.label}>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{change.label}</td>
+                      <td className="px-4 py-3 text-sm text-red-700 dark:text-red-300">{change.oldValue}</td>
+                      <td className="px-4 py-3 text-sm text-green-700 dark:text-green-300">{change.newValue}</td>
+                    </tr>
+                  ))}
+                  {buildAuditChanges(editAuditModal.audit).length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No field-level differences were recorded for this edit.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Attendance Detail Modal */}
       <Modal
@@ -1584,6 +2216,106 @@ const getTimeClassName = (highlight) => (
   </div>
 )}
       </Modal>
+
+      <Modal
+        isOpen={editModal.isOpen}
+        onClose={closeEditModal}
+        title="Edit Attendance Time"
+        size="md"
+      >
+        <form onSubmit={handleSaveAttendanceTime} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Status</label>
+              <select
+                value={editForm.status}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="present" className="dark:bg-gray-800 dark:text-gray-100">Present</option>
+                <option value="absent" className="dark:bg-gray-800 dark:text-gray-100">Absent</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Day</label>
+              <select
+                value={editForm.dayType}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, dayType: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="full-day" className="dark:bg-gray-800 dark:text-gray-100">Full Day</option>
+                <option value="half-day" className="dark:bg-gray-800 dark:text-gray-100">Half Day</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Shift</label>
+            <select
+              value={editForm.shiftId}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, shiftId: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="" className="dark:bg-gray-800 dark:text-gray-100">No shift</option>
+              {shifts.map((shift) => (
+                <option key={shift._id} value={shift._id} className="dark:bg-gray-800 dark:text-gray-100">
+                  {shift.displayName || shift.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Location</label>
+            <select
+              value={editForm.locationId}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, locationId: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="" className="dark:bg-gray-800 dark:text-gray-100">No location</option>
+              {locations.map((location) => (
+                <option key={location._id} value={location._id} className="dark:bg-gray-800 dark:text-gray-100">
+                  {location.name || location.locationName || location.address || 'Location'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Check-in date/time *</label>
+            <input
+              type="datetime-local"
+              value={editForm.checkIn}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, checkIn: e.target.value }))}
+              required
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Checkout date/time</label>
+            <input
+              type="datetime-local"
+              value={editForm.checkOut}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, checkOut: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          {editError && (
+            <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/25 px-3 py-2 text-sm text-red-700 dark:text-red-200">
+              {editError}
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="secondary" onClick={closeEditModal}>Cancel</Button>
+            <Button type="submit" loading={savingEdit}>Save</Button>
+          </div>
+        </form>
+      </Modal>
+
     </div>
   );
 };

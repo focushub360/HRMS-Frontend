@@ -10,6 +10,7 @@ import Modal from '../../components/ui/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { dashboardService, attendanceService, permissionService, leaveService, locationService, shiftService } from '../../services/auth';
+import { formatWorkingHours } from '../../utils/time';
 
 // NOTE: Employee shift fetching uses shiftService.getTodayShifts() which calls GET /api/shifts/today
 // That endpoint is tenant-scoped and requires a valid tenant + auth context.
@@ -469,7 +470,7 @@ const EmployeeDashboard = () => {
       // Show success message with working hours if available
       const workingHours = response?.data?.workingHours || response?.workingHours || data?.todaysAttendance?.workingHours;
       const shiftMessage = shiftName ? ` for ${shiftName} shift` : '';
-      const hoursMessage = workingHours ? ` You've worked ${workingHours} hours so far.` : '';
+      const hoursMessage = workingHours ? ` You've worked ${formatWorkingHours(workingHours)} so far.` : '';
       showToast(` Check-in successful${shiftMessage}!${hoursMessage}`, 'success');
       refreshAttendanceData();
 
@@ -514,7 +515,7 @@ const EmployeeDashboard = () => {
 
       // Calculate working hours from response or data
       const workingHours = response?.workingHours || response?.data?.workingHours || data?.todaysAttendance?.workingHours;
-      const hoursMessage = workingHours ? ` Total working hours: ${workingHours}h.` : '';
+      const hoursMessage = workingHours ? ` Total working hours: ${formatWorkingHours(workingHours)}.` : '';
       showToast(` Check-out successful!${hoursMessage} Have a great day!`, 'success');
       refreshAttendanceData();
 
@@ -771,7 +772,7 @@ const EmployeeDashboard = () => {
                 <div>
                   <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Working Hours</p>
                   <p className="text-2xl font-semibold text-gray-900 dark:text-gray-50 mt-2">
-                    {displayedWorkingHours ? `${displayedWorkingHours}h` : '0h'}
+                    {formatWorkingHours(displayedWorkingHours, { emptyValue: '0h 0m' })}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     {activeShift ? 'Live current session' : latestCompletedSession ? 'Latest completed session' : 'Awaiting check-in'}
@@ -844,7 +845,7 @@ const EmployeeDashboard = () => {
                           {formatTime(session.checkOut)}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                          {Number(session.workingHours || 0)}h
+                          {formatWorkingHours(session.workingHours, { emptyValue: '0h 0m' })}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">Completed</span>
@@ -906,7 +907,7 @@ const EmployeeDashboard = () => {
         />
         <StatCard
           title="Working Hours"
-          value={`${data?.monthlyStats?.totalWorkingHours || 0}h`}
+          value={formatWorkingHours(data?.monthlyStats?.totalWorkingHours, { emptyValue: '0h 0m' })}
           subtitle="Total this month"
           icon={<WorkHistoryIcon className="w-6 h-6" />}
           color="bg-green-50 text-green-600"
@@ -914,7 +915,7 @@ const EmployeeDashboard = () => {
         />
         <StatCard
           title="Avg Hours/Day"
-          value={`${data?.monthlyStats?.averageHours || '0.00'}h`}
+          value={formatWorkingHours(data?.monthlyStats?.averageHours, { emptyValue: '0h 0m' })}
           subtitle="This month"
           icon={<TrendingUpIcon className="w-6 h-6" />}
           color="bg-purple-50 text-purple-600"

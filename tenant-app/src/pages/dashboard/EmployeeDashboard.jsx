@@ -100,6 +100,7 @@ const EmployeeDashboard = () => {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [permissionStats, setPermissionStats] = useState(null);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [pendingLeavesCount, setPendingLeavesCount] = useState(0);
   const [pendingPermissionsCount, setPendingPermissionsCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -108,6 +109,14 @@ const EmployeeDashboard = () => {
   const [checkingStatus, setCheckingStatus] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [permissionModal, setPermissionModal] = useState(false);
+  const [attendanceStatus, setAttendanceStatus] = useState({
+    isCheckedIn: false,
+    activeSession: null,
+    latestCompletedSession: null,
+    todayCompletedSessions: [],
+    overallTodayWorkedHours: 0
+  });
+  const [liveWorkingHours, setLiveWorkingHours] = useState(0);
 
   // Location states for check-in popup
   const [locations, setLocations] = useState([]);
@@ -127,6 +136,7 @@ const EmployeeDashboard = () => {
     loadLeadPendingRequests();
     loadLocations();
     loadTodayShifts();
+    loadAttendanceStatus();
   }, [user?.role]);
 
   // Show toast message
@@ -138,9 +148,9 @@ const EmployeeDashboard = () => {
   // Load tenant locations
   const loadLocations = async () => {
     try {
-      console.log('🔄 Loading tenant locations...');
+      console.log('ðŸ”„ Loading tenant locations...');
       const response = await locationService.getAll();
-      console.log('✅ Tenant locations loaded:', response);
+      console.log('âœ… Tenant locations loaded:', response);
       setLocations(response || []);
       if (response && response.length > 0) {
         setSelectedLocationId(response[0]._id);
@@ -155,16 +165,18 @@ const EmployeeDashboard = () => {
   const loadTodayShifts = async () => {
     setLoadingShifts(true);
     try {
-      console.log('🔄 Loading today shifts...');
+      console.log('ðŸ”„ Loading today shifts...');
 
       // Admin-created shifts for this tenant.
       // This dropdown should show ALL tenant shifts that are active for "today".
       // Backend endpoint: GET /api/shifts/today
       const response = await shiftService.getTodayShifts();
-      console.log('✅ Today shifts response:', response);
+      console.log('âœ… Today shifts response:', response);
 
       // Expected backend: { success: true, data: { todayShifts: [...] } }
-      const todayShiftsFromApi = response?.data?.data?.todayShifts;
+      const todayShiftsFromApi = response?.data?.data?.todayShifts
+        || response?.data?.todayShifts
+        || response?.todayShifts;
       const list = Array.isArray(todayShiftsFromApi)
         ? todayShiftsFromApi
         : Array.isArray(response?.data?.todayShifts)
@@ -189,7 +201,7 @@ const EmployeeDashboard = () => {
         workingHours: s.workingHours
       })).filter((shift) => shift._id);
 
-      console.log('✅ Resolved todayShifts length:', normalized.length, normalized);
+      console.log('âœ… Resolved todayShifts length:', normalized.length, normalized);
       setTodayShifts(normalized);
 
     } catch {
@@ -201,14 +213,87 @@ const EmployeeDashboard = () => {
 
   };
 
+  const calculateLiveHours = (checkInTime) => {
+    if (!checkInTime) return 0;
+    const diffMs = Date.now() - new Date(checkInTime).getTime();
+    if (!Number.isFinite(diffMs) || diffMs <= 0) return 0;
+    return Number((diffMs / (1000 * 60 * 60)).toFixed(2));
+  };
+
+  useEffect(() => {
+    const activeCheckIn = attendanceStatus?.activeSession?.checkIn || attendanceStatus?.checkInTime;
+    if (!activeCheckIn) {
+      setLiveWorkingHours(0);
+      return undefined;
+    }
+
+    setLiveWorkingHours(calculateLiveHours(activeCheckIn));
+    const timer = setInterval(() => {
+      setLiveWorkingHours(calculateLiveHours(activeCheckIn));
+    }, 30000);
+
+    return () => clearInterval(timer);
+  }, [attendanceStatus?.activeSession?.checkIn, attendanceStatus?.checkInTime]);
+
+  const loadAttendanceStatus = async () => {
+    try {
+      const status = await attendanceService.getStatus();
+      setAttendanceStatus({
+        isCheckedIn: Boolean(status?.activeSession || status?.isCheckedIn),
+        activeSession: status?.activeSession || null,
+        latestCompletedSession: status?.latestCompletedSession || null,
+        todayCompletedSessions: Array.isArray(status?.todayCompletedSessions) ? status.todayCompletedSessions : [],
+        overallTodayWorkedHours: Number(status?.overallTodayWorkedHours || 0),
+        activeAttendanceId: status?.activeAttendanceId || status?.activeSession?._id || null,
+        checkInTime: status?.checkInTime || status?.activeSession?.checkIn || null
+      });
+    } catch (error) {
+      console.error('Failed to load attendance status:', error);
+      setAttendanceStatus({
+        isCheckedIn: false,
+        activeSession: null,
+        latestCompletedSession: null,
+        todayCompletedSessions: [],
+        overallTodayWorkedHours: 0
+      });
+    }
+  };
+
 
   const loadDashboardData = async () => {
     try {
-      const dashboardData = await dashboardService.getEmployeeDashboard();
+      const now = new Date();
+      const [dashboardData, myAttendance, currentStatus] = await Promise.all([
+        dashboardService.getEmployeeDashboard(),
+        attendanceService.getMyAttendance(now.getMonth() + 1, now.getFullYear()),
+        attendanceService.getStatus().catch(() => null)
+      ]);
       console.log('Dashboard data received:', dashboardData);
+      if (currentStatus) {
+        setAttendanceStatus({
+          isCheckedIn: Boolean(currentStatus?.activeSession || currentStatus?.isCheckedIn),
+          activeSession: currentStatus?.activeSession || null,
+          latestCompletedSession: currentStatus?.latestCompletedSession || null,
+          todayCompletedSessions: Array.isArray(currentStatus?.todayCompletedSessions) ? currentStatus.todayCompletedSessions : [],
+          overallTodayWorkedHours: Number(currentStatus?.overallTodayWorkedHours || 0),
+          activeAttendanceId: currentStatus?.activeAttendanceId || currentStatus?.activeSession?._id || null,
+          checkInTime: currentStatus?.checkInTime || currentStatus?.activeSession?.checkIn || null
+        });
+      }
+      const attendanceList = Array.isArray(myAttendance) ? myAttendance : [];
+      setAttendanceRecords(attendanceList);
+
+      const hasCheckoutValue = (value) => value !== undefined && value !== null && value !== '';
+      const getAttendanceDateKey = (record) => new Date(record?.date || record?.checkIn).toDateString();
+      const todayKey = new Date().toDateString();
+      const todaysRecords = attendanceList.filter(record => getAttendanceDateKey(record) === todayKey);
+      const activeTodayRecord = todaysRecords.find(record => record.checkIn && !hasCheckoutValue(record.checkOut));
+      const latestTodayRecord = [...todaysRecords].sort(
+        (a, b) => new Date(b.checkIn || b.date) - new Date(a.checkIn || a.date)
+      )[0] || null;
 
       setData({
-        todaysAttendance: dashboardData.todaysAttendance || null,
+        todaysAttendance: activeTodayRecord || latestTodayRecord || dashboardData.todaysAttendance || null,
         monthlyStats: dashboardData.monthlyStats || {
           presentDays: 0,
           halfDays: 0,
@@ -253,7 +338,7 @@ const EmployeeDashboard = () => {
   };
 
   const getPreciseLocation = async () => {
-    const timeoutMs = 12000;
+    const timeoutMs = 2000;
     const accuracyThreshold = 100;
 
     return new Promise((resolve, reject) => {
@@ -304,7 +389,7 @@ const EmployeeDashboard = () => {
         watchId = navigator.geolocation.watchPosition(onLocationUpdate, onError, {
           enableHighAccuracy: true,
           timeout: timeoutMs,
-          maximumAge: 0
+          maximumAge: 60000
         });
       } catch (err) {
         cleanup();
@@ -319,6 +404,16 @@ const EmployeeDashboard = () => {
           reject(new Error('Unable to retrieve location within timeout'));
         }
       }, timeoutMs);
+    });
+  };
+
+  const refreshAttendanceData = () => {
+    Promise.all([
+      loadAttendanceStatus(),
+      loadDashboardData(),
+      loadTodayShifts()
+    ]).catch((error) => {
+      console.error('Failed to refresh attendance data:', error);
     });
   };
 
@@ -350,7 +445,7 @@ const EmployeeDashboard = () => {
             checkInLng: pos.coords.longitude,
             checkInAccuracy: pos.coords.accuracy,
           };
-          console.log('📍 Location obtained:', payload);
+          console.log('ðŸ“ Location obtained:', payload);
         } catch (geoErr) {
           console.warn('Geolocation failed:', geoErr);
         }
@@ -367,17 +462,16 @@ const EmployeeDashboard = () => {
       setCheckingStatus('submitting');
       const response = await attendanceService.checkIn(payload);
       setIsCheckInModalOpen(false);
-      console.log('✅ Check-in response:', response);
+      setLiveWorkingHours(0);
+      console.log('âœ… Check-in response:', response);
 
       // Refresh all data
-      await loadDashboardData();
-      await loadTodayShifts();
-
       // Show success message with working hours if available
-      const workingHours = response.data?.workingHours || data?.todaysAttendance?.workingHours;
+      const workingHours = response?.data?.workingHours || response?.workingHours || data?.todaysAttendance?.workingHours;
       const shiftMessage = shiftName ? ` for ${shiftName} shift` : '';
       const hoursMessage = workingHours ? ` You've worked ${workingHours} hours so far.` : '';
       showToast(` Check-in successful${shiftMessage}!${hoursMessage}`, 'success');
+      refreshAttendanceData();
 
     } catch (error) {
       console.error(' Check-in failed:', error);
@@ -390,11 +484,6 @@ const EmployeeDashboard = () => {
 
   // Check-out from current active shift
   const handleCheckOut = async () => {
-    if (!data?.todaysAttendance?.checkIn) {
-      showToast('No active check-in found', 'error');
-      return;
-    }
-
     setChecking(true);
     setCheckingStatus('locating');
 
@@ -414,16 +503,20 @@ const EmployeeDashboard = () => {
         }
       }
 
+      if (attendanceStatus?.activeAttendanceId) {
+        payload.attendanceId = attendanceStatus.activeAttendanceId;
+      }
+
       setCheckingStatus('submitting');
       const response = await attendanceService.checkOut(payload);
 
-      await loadDashboardData();
-      await loadTodayShifts();
+      setLiveWorkingHours(0);
 
       // Calculate working hours from response or data
-      const workingHours = response.data?.workingHours || data?.todaysAttendance?.workingHours;
+      const workingHours = response?.workingHours || response?.data?.workingHours || data?.todaysAttendance?.workingHours;
       const hoursMessage = workingHours ? ` Total working hours: ${workingHours}h.` : '';
       showToast(` Check-out successful!${hoursMessage} Have a great day!`, 'success');
+      refreshAttendanceData();
 
     } catch (error) {
       console.error('Check-out failed:', error);
@@ -488,14 +581,31 @@ const EmployeeDashboard = () => {
     return approvedStat ? approvedStat.count : 0;
   };
 
-  const allocatedMultiShift = todayShifts.length > 1;
+  const hasCheckoutValue = (value) => value !== undefined && value !== null && value !== '';
+  const activeSession = attendanceStatus?.activeSession || null;
+  const latestCompletedSession = attendanceStatus?.latestCompletedSession || null;
+  const todayCompletedSessions = Array.isArray(attendanceStatus?.todayCompletedSessions)
+    ? attendanceStatus.todayCompletedSessions
+    : [];
   const pendingShift = todayShifts.find(shift => shift.status === 'pending');
   const nextCheckInShift = todayShifts.find(shift => shift.status === 'pending' && shift.canCheckIn) || pendingShift;
-  const completedShiftCount = todayShifts.filter(shift => shift.status === 'completed').length;
-  const checkedInShift = todayShifts.find(shift => shift.status === 'checked_in');
-  const allAllocatedShiftsCompleted = allocatedMultiShift && todayShifts.length > 0 && completedShiftCount === todayShifts.length;
+  const checkedInShift = todayShifts.find(shift => {
+    return shift.status === 'checked_in'
+      && shift.checkIn
+      && !hasCheckoutValue(shift.checkOut);
+  });
+  const allAllocatedShiftsCompleted = false;
 
-  const activeShift = checkedInShift
+  const activeShift = activeSession
+    ? {
+        name: activeSession.selectedShift?.name || activeSession.selectedShift?.displayName || activeSession.shiftName || 'Shift',
+        checkIn: activeSession.checkIn,
+        startTime: activeSession.selectedShift?.startTime || activeSession.shiftStartTime,
+        endTime: activeSession.selectedShift?.endTime || activeSession.shiftEndTime,
+        workingHours: liveWorkingHours,
+        isNightShift: activeSession.selectedShift?.isNightShift
+      }
+    : checkedInShift
     ? {
         name: checkedInShift.displayName || checkedInShift.name || 'Shift',
         checkIn: checkedInShift.checkIn,
@@ -504,25 +614,40 @@ const EmployeeDashboard = () => {
         workingHours: checkedInShift.workingHours,
         isNightShift: checkedInShift.isNightShift
       }
-    : data?.todaysAttendance?.checkIn && !data?.todaysAttendance?.checkOut
+    : data?.todaysAttendance?.checkIn && !hasCheckoutValue(data?.todaysAttendance?.checkOut)
     ? {
         name: data.todaysAttendance.shiftName || 'Shift',
         checkIn: data.todaysAttendance.checkIn,
         startTime: data.todaysAttendance.shiftStartTime,
         endTime: data.todaysAttendance.shiftEndTime,
         workingHours: data.todaysAttendance.workingHours
+    }
+    : null;
+
+  const completedShift = latestCompletedSession
+    ? {
+        name: latestCompletedSession.selectedShift?.name || latestCompletedSession.selectedShift?.displayName || latestCompletedSession.shiftName || 'Completed Shift',
+        checkIn: latestCompletedSession.checkIn,
+        checkOut: latestCompletedSession.checkOut,
+        startTime: latestCompletedSession.selectedShift?.startTime || latestCompletedSession.shiftStartTime,
+        endTime: latestCompletedSession.selectedShift?.endTime || latestCompletedSession.shiftEndTime,
+        workingHours: latestCompletedSession.workingHours
       }
     : null;
 
-  const attendanceCardShift = activeShift || nextCheckInShift || {
+  const attendanceCardShift = activeShift || completedShift || nextCheckInShift || {
     name: data?.todaysAttendance?.shiftName || data?.todaysShift?.name || 'Assigned Shift',
     startTime: data?.todaysAttendance?.shiftStartTime || data?.todaysShift?.startTime,
     endTime: data?.todaysAttendance?.shiftEndTime || data?.todaysShift?.endTime,
-    workingHours: data?.todaysAttendance?.workingHours
+    workingHours: 0
   };
-  const checkInTime = activeShift?.checkIn || data?.todaysAttendance?.checkIn;
-  const checkOutTime = !activeShift ? data?.todaysAttendance?.checkOut : null;
-  const attendanceComplete = Boolean(checkInTime && checkOutTime && !nextCheckInShift);
+  const checkInTime = activeShift?.checkIn || completedShift?.checkIn || data?.todaysAttendance?.checkIn;
+  const checkOutTime = !activeShift ? (completedShift?.checkOut || data?.todaysAttendance?.checkOut) : null;
+  const attendanceComplete = Boolean(!activeShift && latestCompletedSession);
+  const attendanceBadgeLabel = activeShift ? 'In Progress' : (latestCompletedSession ? 'Completed' : 'Pending');
+  const displayedWorkingHours = activeShift
+    ? liveWorkingHours
+    : Number(latestCompletedSession?.workingHours || 0);
   const actionShift = activeShift ? null : nextCheckInShift;
   const actionLabel = activeShift
     ? 'Check Out'
@@ -591,7 +716,7 @@ const EmployeeDashboard = () => {
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     {attendanceCardShift.name}
                     {(attendanceCardShift.startTime || attendanceCardShift.endTime) && (
-                      <span> • {formatShiftTime(attendanceCardShift.startTime)} - {formatShiftTime(attendanceCardShift.endTime)}</span>
+                      <span> â€¢ {formatShiftTime(attendanceCardShift.startTime)} - {formatShiftTime(attendanceCardShift.endTime)}</span>
                     )}
                   </p>
                 </div>
@@ -599,11 +724,11 @@ const EmployeeDashboard = () => {
               <span className={`self-start lg:self-center px-3 py-1 text-xs font-semibold rounded-full border ${
                 activeShift
                   ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-800'
-                  : attendanceComplete || allAllocatedShiftsCompleted
+                  : latestCompletedSession
                     ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-200 dark:border-green-800'
                     : 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
               }`}>
-                {activeShift ? 'In Progress' : attendanceComplete || allAllocatedShiftsCompleted ? 'Completed' : 'Pending'}
+                {attendanceBadgeLabel}
               </span>
             </div>
           </Card.Header>
@@ -646,10 +771,10 @@ const EmployeeDashboard = () => {
                 <div>
                   <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Working Hours</p>
                   <p className="text-2xl font-semibold text-gray-900 dark:text-gray-50 mt-2">
-                    {attendanceCardShift.workingHours ? `${attendanceCardShift.workingHours}h` : '0h'}
+                    {displayedWorkingHours ? `${displayedWorkingHours}h` : '0h'}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                    {activeShift ? 'Updated after checkout' : 'Calculated from completed shift'}
+                    {activeShift ? 'Live current session' : latestCompletedSession ? 'Latest completed session' : 'Awaiting check-in'}
                   </p>
                 </div>
 
@@ -658,7 +783,8 @@ const EmployeeDashboard = () => {
                     onClick={handleCheckOut}
                     loading={checking}
                     size="lg"
-                    className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-300/70"
+                    variant="danger"
+                    className="w-full rounded-lg"
                   >
                     {checking ? (checkingStatus === 'locating' ? 'Acquiring Location...' : 'Checking Out...') : actionLabel}
                   </Button>
@@ -667,7 +793,8 @@ const EmployeeDashboard = () => {
                     onClick={() => triggerCheckIn(actionShift?._id || null, actionShift?.displayName || actionShift?.name || null)}
                     loading={checking}
                     size="lg"
-                    className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-300/70"
+                    variant="success"
+                    className="w-full rounded-lg"
                   >
                     {checking ? (checkingStatus === 'locating' ? 'Acquiring Location...' : 'Checking In...') : actionLabel}
                   </Button>
@@ -681,62 +808,56 @@ const EmployeeDashboard = () => {
           </Card.Content>
         </Card>
 
-        {/* All Shifts Overview - Shows all shifts for the day */}
-        {allocatedMultiShift && (
-            <Card className="lg:col-span-2">
-              <Card.Header>
-                <Card.Title className="text-lg font-semibold">Today's Shift Overview</Card.Title>
-                <p className="text-sm text-gray-500 mt-1">
-                  {completedShiftCount} of {todayShifts.length} allocated shifts completed
-                </p>
-              </Card.Header>
-              <Card.Content>
-                <div className="space-y-3">
-                  {todayShifts.map(shift => (
-                    <div key={shift._id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">{shift.displayName || shift.name}</p>
-                          {shift.isNightShift && <span className="text-xs px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full">Night</span>}
-                        </div>
-                        <p className="text-sm text-gray-500">{formatShiftTime(shift.startTime)} - {formatShiftTime(shift.endTime)}</p>
-                        {shift.workingHours > 0 && (
-                          <p className="text-xs text-blue-600 mt-1">Worked: {shift.workingHours}h</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {shift.status === 'completed' && (
-                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
-                            ✓ Completed ({shift.workingHours}h)
-                          </span>
-                        )}
-                        {shift.status === 'checked_in' && (
-                          <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
-                            In Progress ({shift.workingHours || 0}h)
-                          </span>
-                        )}
-                        {shift.status === 'pending' && !shift.canCheckIn && (
-                          <span className="px-2 py-1 bg-gray-100 text-gray-500 text-xs rounded-full">
-                            Upcoming at {formatShiftTime(shift.startTime)}
-                          </span>
-                        )}
-                        {shift.status === 'pending' && shift.canCheckIn && !activeShift && (
-                          <Button
-                            size="sm"
-                            onClick={() => triggerCheckIn(shift._id, shift.displayName || shift.name)}
-                            disabled={checking}
-                            className="rounded-lg"
-                          >
-                            Check In
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card.Content>
-            </Card>
-          )}
+        {todayCompletedSessions.length > 0 && (
+          <Card className="lg:col-span-2 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 shadow-sm">
+            <Card.Header className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-5">
+              <Card.Title className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Today's Sessions
+              </Card.Title>
+            </Card.Header>
+            <Card.Content>
+              <div className="overflow-hidden border border-gray-200 dark:border-gray-700 rounded-lg">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shift</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check In</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check Out</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Working Hours</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                    {todayCompletedSessions.map((session) => (
+                      <tr key={session._id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {session.selectedShift?.name || session.shiftName || '--'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {session.checkInLocation?.name || session.checkInPlace || '--'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {formatTime(session.checkIn)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {formatTime(session.checkOut)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {Number(session.workingHours || 0)}h
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">Completed</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card.Content>
+          </Card>
+        )}
+
       </div>
 
       {/* Rest of your existing components remain the same */}
@@ -941,7 +1062,7 @@ const EmployeeDashboard = () => {
                     {new Date(leave.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(leave.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </p>
                   <p className="text-sm text-gray-600 capitalize mt-1">
-                    {leave.leaveType} Leave • {leave.totalDays} {leave.totalDays === 1 ? 'day' : 'days'}
+                    {leave.leaveType} Leave â€¢ {leave.totalDays} {leave.totalDays === 1 ? 'day' : 'days'}
                   </p>
                 </div>
                 <span className="px-3 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full border border-green-200">
@@ -1049,7 +1170,7 @@ const EmployeeDashboard = () => {
             </Button>
             <Button
               variant="primary"
-              disabled={loadingShifts || checking}
+              disabled={loadingShifts || checking || !pendingCheckInParams.shiftId}
               onClick={() => {
                 handleCheckIn(
                   pendingCheckInParams.shiftId,

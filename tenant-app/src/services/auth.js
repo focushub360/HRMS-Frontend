@@ -285,6 +285,16 @@ export const attendanceService = {
     }
   },
 
+  getStatus: async () => {
+    try {
+      const response = await api.get('/attendance/status');
+      return response.data;
+    } catch (error) {
+      console.error('Get attendance status error:', error);
+      throw error;
+    }
+  },
+
   getMyAttendance: async (month, year) => {
     try {
       const response = await api.get('/attendance/my-attendance', {

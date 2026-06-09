@@ -145,8 +145,8 @@ const LocationManagement = () => {
     <div className="max-w-7xl mx-auto space-y-6 px-2 sm:px-4 lg:px-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Location Management</h1>
-          <p className="text-gray-600">Manage the office locations employees can select during attendance.</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Location Management</h1>
+          <p className="text-gray-600 dark:text-gray-300">Manage the office locations employees can select during attendance.</p>
         </div>
         <Button onClick={openCreateModal} className="flex items-center gap-2">
           <AddLocationAltIcon className="w-4 h-4" />
@@ -156,31 +156,31 @@ const LocationManagement = () => {
 
       {locations.length === 0 ? (
         <Card className="text-center py-12">
-          <LocationOnIcon className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">No locations yet</h2>
-          <p className="text-gray-600 mb-6">Create the first location for employee check-in.</p>
+          <LocationOnIcon className="w-16 h-16 mx-auto text-gray-300 dark:text-gray-500 mb-4" />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">No locations yet</h2>
+          <p className="text-gray-600 dark:text-gray-300 mb-6">Create the first location for employee check-in.</p>
           <Button onClick={openCreateModal}>Create Location</Button>
         </Card>
       ) : (
         <Card className="shadow-sm" padding="p-0">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Location</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {locations.map((location) => (
-                  <tr key={location._id} className="hover:bg-gray-50">
+                  <tr key={location._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center">
+                        <div className="h-9 w-9 rounded-lg bg-primary-50 dark:bg-primary-900/40 text-primary-600 dark:text-primary-300 flex items-center justify-center">
                           <LocationOnIcon className="w-5 h-5" />
                         </div>
                         <div>
-                          <div className="text-sm font-semibold text-gray-900">{location.name}</div>
+                          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{location.name}</div>
                         </div>
                       </div>
                     </td>
@@ -223,11 +223,11 @@ const LocationManagement = () => {
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Location Name *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Location Name *</label>
             <input
               value={form.name}
               onChange={(e) => handleChange('name', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               placeholder="Main Office"
               required
             />

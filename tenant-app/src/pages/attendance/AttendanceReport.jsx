@@ -549,6 +549,62 @@ const formatShiftDisplay = (record) => {
   return null;
 };
 
+const getShiftTiming = (record) => {
+  const startTime = record?.shift?.startTime || record?.shiftStartTime || record?.startTime;
+  const endTime = record?.shift?.endTime || record?.shiftEndTime || record?.endTime;
+  if (!startTime || !endTime) return null;
+  return { startTime, endTime };
+};
+
+const combineDateAndTime = (baseDate, timeString, addDay = false) => {
+  if (!baseDate || !timeString) return null;
+  const base = new Date(baseDate);
+  if (Number.isNaN(base.getTime())) return null;
+
+  const match = String(timeString).match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+
+  const result = new Date(base);
+  result.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  if (addDay) result.setDate(result.getDate() + 1);
+  return result;
+};
+
+const isCheckInBeforeShiftStart = (record) => {
+  const timing = getShiftTiming(record);
+  if (!timing || !record?.checkIn) return false;
+
+  const checkIn = new Date(record.checkIn);
+  const shiftStart = combineDateAndTime(record.checkIn || record.date, timing.startTime);
+  if (Number.isNaN(checkIn.getTime()) || !shiftStart) return false;
+
+  const allowedCheckInStart = new Date(shiftStart);
+  allowedCheckInStart.setMinutes(allowedCheckInStart.getMinutes() - 15);
+  return checkIn < allowedCheckInStart;
+};
+
+const isCheckOutBeforeShiftEndGrace = (record) => {
+  const timing = getShiftTiming(record);
+  if (!timing || !record?.checkOut) return false;
+
+  const checkOut = new Date(record.checkOut);
+  const shiftStart = combineDateAndTime(record.checkIn || record.date, timing.startTime);
+  const shiftEndSameDay = combineDateAndTime(record.checkIn || record.date || record.checkOut, timing.endTime);
+  if (Number.isNaN(checkOut.getTime()) || !shiftEndSameDay) return false;
+
+  const crossesMidnight = shiftStart && shiftEndSameDay <= shiftStart;
+  const shiftEnd = combineDateAndTime(record.checkIn || record.date || record.checkOut, timing.endTime, crossesMidnight);
+  if (!shiftEnd) return false;
+
+  const allowedCheckOutStart = new Date(shiftEnd);
+  allowedCheckOutStart.setMinutes(allowedCheckOutStart.getMinutes() - 15);
+  return checkOut < allowedCheckOutStart;
+};
+
+const getTimeClassName = (highlight) => (
+  highlight ? 'font-semibold text-red-600' : 'text-gray-900'
+);
+
   const getLocationName = (value) => {
     if (!value) return '';
     if (typeof value === 'string') return value;
@@ -1244,6 +1300,8 @@ const formatShiftDisplay = (record) => {
   const recordPermissions = getPermissionsForRecord(record);
   const shiftDisplay = formatShiftDisplay(record);
   const isNightShift = record.isNightShift || record.shift?.isNightShift || false;
+  const checkInTimeClass = getTimeClassName(isCheckInBeforeShiftStart(record));
+  const checkOutTimeClass = getTimeClassName(isCheckOutBeforeShiftEndGrace(record));
   
   return (
     <tr key={record._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -1272,15 +1330,15 @@ const formatShiftDisplay = (record) => {
           {record.date ? new Date(record.date).toLocaleDateString('en-US', { weekday: 'long' }) : '--'}
         </div>
       </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        <div>{formatTime(record.checkIn)}</div>
+      <td className="px-6 py-4 whitespace-nowrap text-sm">
+        <div className={checkInTimeClass}>{formatTime(record.checkIn)}</div>
         <div className="mt-1">{renderLocation(record, 'in', { includeSelectedLocation: false })}</div>
       </td>
       <td className="px-6 py-4 whitespace-nowrap">
         {renderSelectedLocation(record)}
       </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        <div>{formatTime(record.checkOut)}</div>
+      <td className="px-6 py-4 whitespace-nowrap text-sm">
+        <div className={checkOutTimeClass}>{formatTime(record.checkOut)}</div>
         <div className="text-xs text-gray-500">{formatDate(record.checkOut)}</div>
         <div className="mt-1">{renderLocation(record, 'out')}</div>
       </td>
@@ -1354,6 +1412,8 @@ const formatShiftDisplay = (record) => {
     const recordPermissions = getPermissionsForRecord(record);
     const shiftDisplay = formatShiftDisplay(record);
     const isNightShift = record.isNightShift || record.shift?.isNightShift || false;
+    const checkInTimeClass = getTimeClassName(isCheckInBeforeShiftStart(record));
+    const checkOutTimeClass = getTimeClassName(isCheckOutBeforeShiftEndGrace(record));
     
     return (
       <Card key={record._id} className="p-4">
@@ -1418,12 +1478,12 @@ const formatShiftDisplay = (record) => {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <div className="text-gray-500">Check In</div>
-              <div className="font-medium">{formatTime(record.checkIn)}</div>
+              <div className={`font-medium ${checkInTimeClass}`}>{formatTime(record.checkIn)}</div>
               <div className="mt-1">{renderLocation(record, 'in', { includeSelectedLocation: false })}</div>
             </div>
             <div>
               <div className="text-gray-500">Check Out</div>
-              <div className="font-medium">{formatTime(record.checkOut)}</div>
+              <div className={`font-medium ${checkOutTimeClass}`}>{formatTime(record.checkOut)}</div>
               <div className="text-xs text-gray-500">{formatDate(record.checkOut)}</div>
               <div className="mt-1">{renderLocation(record, 'out')}</div>
             </div>

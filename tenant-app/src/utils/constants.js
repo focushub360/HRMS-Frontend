@@ -2,12 +2,7 @@
 //export const API_BASE_URL = 'http://localhost:5000/api';
 //console l
 
-
-
 export const API_BASE_URL = 'https://hrm-backend-axau.onrender.com/api';
-
-
-
 
 // User Roles
 export const USER_ROLES = {

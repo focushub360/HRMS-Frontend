@@ -243,6 +243,9 @@ const TenantView = () => {
   const [creatingAdmin, setCreatingAdmin] = useState(false);
   const [togglingStatus, setTogglingStatus] = useState(false);
   const [copiedPortal, setCopiedPortal] = useState(false);
+  const [tenantAdmins, setTenantAdmins] = useState([]);
+  const [adminsLoading, setAdminsLoading] = useState(false);
+  const [updatingPermissionId, setUpdatingPermissionId] = useState(null);
 
   const loadTenant = useCallback(async () => {
     setLoading(true);
@@ -256,9 +259,23 @@ const TenantView = () => {
     }
   }, [id]);
 
+  const loadTenantAdmins = useCallback(async () => {
+    setAdminsLoading(true);
+    try {
+      const admins = await tenantService.getAdmins(id);
+      setTenantAdmins(Array.isArray(admins) ? admins : []);
+    } catch (error) {
+      console.error('Failed to load tenant admins:', error);
+      setTenantAdmins([]);
+    } finally {
+      setAdminsLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     loadTenant();
-  }, [loadTenant]);
+    loadTenantAdmins();
+  }, [loadTenant, loadTenantAdmins]);
 
   const computePortalDisplay = (t) => {
     if (!t) return '';
@@ -309,12 +326,34 @@ const TenantView = () => {
       showSuccess('Admin created successfully');
       // reload tenant details to show new admin if applicable
       await loadTenant();
+      await loadTenantAdmins();
     } catch (error) {
       console.error('Failed to create admin:', error.response?.data || error.message || error);
       const backendMsg = error?.response?.data?.message || error?.message || 'Failed to create admin';
       showError(typeof backendMsg === 'string' ? backendMsg : JSON.stringify(backendMsg));
     } finally {
       setCreatingAdmin(false);
+    }
+  };
+
+  const handleAttendancePermissionChange = async (admin, canEditAttendanceTime) => {
+    setUpdatingPermissionId(admin._id);
+    try {
+      const updatedAdmin = await tenantService.updateAdminAttendancePermission(
+        id,
+        admin._id,
+        canEditAttendanceTime
+      );
+      setTenantAdmins((prev) => prev.map((item) => (
+        item._id === admin._id ? { ...item, ...updatedAdmin } : item
+      )));
+      showSuccess('Attendance edit permission updated');
+    } catch (error) {
+      console.error('Failed to update attendance edit permission:', error);
+      const message = error?.response?.data?.message || error.message || 'Failed to update permission';
+      showError(message);
+    } finally {
+      setUpdatingPermissionId(null);
     }
   };
 
@@ -560,6 +599,56 @@ const TenantView = () => {
               </Card.Content>
             </Card>
           )}
+
+          <Card>
+            <Card.Header>
+              <Card.Title className="flex items-center space-x-2">
+                <PersonIcon className="w-5 h-5 text-blue-600" />
+                <span>Tenant Admin Permissions</span>
+              </Card.Title>
+            </Card.Header>
+            <Card.Content>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenant Admin</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Can Edit Attendance Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {tenantAdmins.map((admin) => (
+                      <tr key={admin._id}>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                          {admin.employee?.name || 'Admin'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">
+                          {admin.email || admin.employee?.email || 'N/A'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <label className="inline-flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(admin.canEditAttendanceTime)}
+                              disabled={updatingPermissionId === admin._id}
+                              onChange={(e) => handleAttendancePermissionChange(admin, e.target.checked)}
+                              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="text-sm text-gray-700">Can Edit Attendance Time</span>
+                          </label>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!adminsLoading && tenantAdmins.length === 0 && (
+                <p className="py-6 text-center text-sm text-gray-500">No tenant admins found.</p>
+              )}
+              {adminsLoading && <LoadingSpinner size="sm" className="py-6" />}
+            </Card.Content>
+          </Card>
         </div>
 
         {/* Sidebar - Subscription & Actions */}

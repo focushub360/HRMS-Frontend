@@ -143,6 +143,29 @@ export const tenantService = {
     }
   },
 
+  getAdmins: async (tenantId) => {
+    try {
+      const response = await api.get(`/super-admin/tenants/${tenantId}/admins`);
+      return response.data;
+    } catch (error) {
+      console.error('Get tenant admins error:', error);
+      throw error;
+    }
+  },
+
+  updateAdminAttendancePermission: async (tenantId, adminId, canEditAttendanceTime) => {
+    try {
+      const response = await api.put(
+        `/super-admin/tenants/${tenantId}/admins/${adminId}/attendance-time-permission`,
+        { canEditAttendanceTime }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Update admin attendance permission error:', error);
+      throw error;
+    }
+  },
+
   getStats: async () => {
     try {
       const response = await api.get('/super-admin/stats/tenants');

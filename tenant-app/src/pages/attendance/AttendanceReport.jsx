@@ -1,3 +1,5 @@
+/* eslint-disable no-undef */
+/* eslint-disable no-unused-vars */
 import React, { useState, useEffect } from 'react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -21,6 +23,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import EditIcon from '@mui/icons-material/Edit';
+import AddIcon from '@mui/icons-material/Add';
 
 const AttendanceReport = () => {
   const { user } = useAuth();
@@ -46,9 +49,18 @@ const AttendanceReport = () => {
     const dd = String(endDate.getDate()).padStart(2, '0');
     return { start, end: `${yyyy}-${mm}-${dd}` };
   });
+  const [reportDateRange, setReportDateRange] = useState(() => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const start = `${yyyy}-${mm}-01`;
+    const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const dd = String(endDate.getDate()).padStart(2, '0');
+    return { start, end: `${yyyy}-${mm}-${dd}` };
+  });
   const [statusFilter, setStatusFilter] = useState('all');
   const [detailModal, setDetailModal] = useState({ isOpen: false, record: null });
-  const [editModal, setEditModal] = useState({ isOpen: false, record: null });
+  const [editModal, setEditModal] = useState({ isOpen: false, record: null, mode: 'edit', employee: null, dateKey: '' });
   const [editForm, setEditForm] = useState({ checkIn: '', checkOut: '', status: 'present', dayType: 'full-day', shiftId: '', locationId: '', reason: '' });
   const [editError, setEditError] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
@@ -57,8 +69,11 @@ const AttendanceReport = () => {
   const [reportEditError, setReportEditError] = useState('');
   const [savingReportEdit, setSavingReportEdit] = useState(false);
   const [editAuditModal, setEditAuditModal] = useState({ isOpen: false, row: null, audit: null });
+  const [reportTableView, setReportTableView] = useState('table1');
   const [mobileView, setMobileView] = useState('stats'); // 'stats', 'summary', 'details', 'report'
   const canEditAttendanceTime = user?.role === 'admin' && user?.canEditAttendanceTime === true;
+  const activeDateRange = mobileView === 'report' ? reportDateRange : dateRange;
+  const activeDateFilter = mobileView === 'report' ? '' : dateFilter;
 
   const syncSelectedPeriod = (dateObj) => {
     if (!dateObj || !(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return;
@@ -154,8 +169,8 @@ const AttendanceReport = () => {
   };
 
   const fetchAttendanceEntries = async (employeeParam) => {
-    const rangeBuckets = (dateRange && dateRange.start && dateRange.end)
-      ? getMonthYearBuckets(dateRange.start, dateRange.end)
+    const rangeBuckets = (activeDateRange && activeDateRange.start && activeDateRange.end)
+      ? getMonthYearBuckets(activeDateRange.start, activeDateRange.end)
       : [];
     const buckets = rangeBuckets.length > 0
       ? rangeBuckets
@@ -207,7 +222,7 @@ const AttendanceReport = () => {
       loadSummary();
       loadPermissions();
     }
-  }, [selectedMonth, selectedYear, selectedEmployee, dateFilter, statusFilter, employees.length, datePreset, dateRange]);
+  }, [selectedMonth, selectedYear, selectedEmployee, dateFilter, statusFilter, employees.length, datePreset, dateRange, reportDateRange, mobileView]);
 
   useEffect(() => {
     if (datePreset === 'all' || datePreset === 'thisMonth') {
@@ -311,12 +326,12 @@ const AttendanceReport = () => {
         filtered = filtered.filter(r => getId(r.employee) === String(selectedEmployee));
       }
       // Specific date filter has highest priority
-      if (dateFilter) {
-        const df = normalizeDateString(dateFilter);
+      if (activeDateFilter) {
+        const df = normalizeDateString(activeDateFilter);
         filtered = filtered.filter(r => normalizeDateString(r.date || r.checkIn) === df);
-      } else if (dateRange && dateRange.start && dateRange.end) {
-        const startTime = new Date(dateRange.start).setHours(0,0,0,0);
-        const endTime = new Date(dateRange.end).setHours(23,59,59,999);
+      } else if (activeDateRange && activeDateRange.start && activeDateRange.end) {
+        const startTime = new Date(activeDateRange.start).setHours(0,0,0,0);
+        const endTime = new Date(activeDateRange.end).setHours(23,59,59,999);
         filtered = filtered.filter(r => {
           const dateValue = r.date || r.checkIn;
           const t = dateValue ? new Date(dateValue).getTime() : null;
@@ -352,12 +367,12 @@ const AttendanceReport = () => {
 
       // apply date filters (if any)
       let filtered = normalized;
-      if (dateFilter) {
-        const df = normalizeDateString(dateFilter);
+      if (activeDateFilter) {
+        const df = normalizeDateString(activeDateFilter);
         filtered = filtered.filter(r => normalizeDateString(r.date || r.checkIn) === df);
-      } else if (dateRange && dateRange.start && dateRange.end) {
-        const startTime = new Date(dateRange.start).setHours(0,0,0,0);
-        const endTime = new Date(dateRange.end).setHours(23,59,59,999);
+      } else if (activeDateRange && activeDateRange.start && activeDateRange.end) {
+        const startTime = new Date(activeDateRange.start).setHours(0,0,0,0);
+        const endTime = new Date(activeDateRange.end).setHours(23,59,59,999);
         filtered = filtered.filter(r => {
           const dateValue = r.date || r.checkIn;
           const t = dateValue ? new Date(dateValue).getTime() : null;
@@ -401,8 +416,8 @@ const AttendanceReport = () => {
   const loadPermissions = async () => {
     try {
       const employeeParam = selectedEmployee && selectedEmployee !== 'all' ? selectedEmployee : undefined;
-      const rangeBuckets = (dateRange && dateRange.start && dateRange.end)
-        ? getMonthYearBuckets(dateRange.start, dateRange.end)
+      const rangeBuckets = (activeDateRange && activeDateRange.start && activeDateRange.end)
+        ? getMonthYearBuckets(activeDateRange.start, activeDateRange.end)
         : [];
       const buckets = rangeBuckets.length > 0
         ? rangeBuckets
@@ -434,12 +449,12 @@ const AttendanceReport = () => {
       });
 
       // apply date range filter if present
-      if (dateFilter) {
-        const df = normalizeDateString(dateFilter);
+      if (activeDateFilter) {
+        const df = normalizeDateString(activeDateFilter);
         data = (data || []).filter(p => normalizeDateString(p.date || p.permissionDate || p.permission_date) === df);
-      } else if (dateRange && dateRange.start && dateRange.end) {
-        const startTime = new Date(dateRange.start).setHours(0,0,0,0);
-        const endTime = new Date(dateRange.end).setHours(23,59,59,999);
+      } else if (activeDateRange && activeDateRange.start && activeDateRange.end) {
+        const startTime = new Date(activeDateRange.start).setHours(0,0,0,0);
+        const endTime = new Date(activeDateRange.end).setHours(23,59,59,999);
         data = (data || []).filter(p => {
           const d = p.date || p.permissionDate || p.permission_date;
           const t = d ? new Date(d).getTime() : null;
@@ -455,6 +470,17 @@ const AttendanceReport = () => {
   };
 
   const getStatusBadge = (record) => {
+    const normalizedStatus = String(record?.status || '').toLowerCase();
+
+    if (normalizedStatus === 'absent') {
+      return (
+        <div className="flex items-center space-x-1">
+          <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full">Absent</span>
+        </div>
+      );
+    }
+
     if (!record.checkIn) {
       return (
         <div className="flex items-center space-x-1">
@@ -473,7 +499,7 @@ const AttendanceReport = () => {
       );
     }
     
-    switch (record.status) {
+    switch (normalizedStatus) {
       case 'present':
         return (
           <div className="flex items-center space-x-1">
@@ -644,11 +670,27 @@ const AttendanceReport = () => {
   const openEditModal = (record) => {
     setEditError('');
     setEditForm(buildEditForm(record));
-    setEditModal({ isOpen: true, record });
+    setEditModal({ isOpen: true, record, mode: 'edit', employee: null, dateKey: '' });
+  };
+
+  const openCreateAttendanceModal = (employee, dateKey) => {
+    const defaultCheckIn = `${dateKey}T09:00`;
+    const defaultCheckOut = `${dateKey}T18:00`;
+    setEditError('');
+    setEditForm({
+      checkIn: defaultCheckIn,
+      checkOut: defaultCheckOut,
+      status: 'present',
+      dayType: 'full-day',
+      shiftId: '',
+      locationId: '',
+      reason: ''
+    });
+    setEditModal({ isOpen: true, record: null, mode: 'create', employee, dateKey });
   };
 
   const closeEditModal = () => {
-    setEditModal({ isOpen: false, record: null });
+    setEditModal({ isOpen: false, record: null, mode: 'edit', employee: null, dateKey: '' });
     setEditError('');
     setEditForm(resetEditForm);
   };
@@ -689,7 +731,7 @@ const AttendanceReport = () => {
 
     setSavingEdit(true);
     try {
-      await attendanceService.updateAttendanceTime(editModal.record._id, {
+      const payload = {
         checkIn: checkInDate.toISOString(),
         checkOut: checkOutDate ? checkOutDate.toISOString() : null,
         status: editForm.status,
@@ -697,7 +739,16 @@ const AttendanceReport = () => {
         shiftId: editForm.shiftId || null,
         locationId: editForm.locationId || null,
         reason: editForm.reason
-      });
+      };
+
+      if (editModal.mode === 'create') {
+        await attendanceService.createAdminAttendanceEntry({
+          ...payload,
+          employeeId: getId(editModal.employee)
+        });
+      } else {
+        await attendanceService.updateAttendanceTime(editModal.record._id, payload);
+      }
       closeEditModal();
       await loadAttendance();
       await loadSummary();
@@ -779,13 +830,17 @@ const formatShiftDisplay = (record) => {
 };
 
 const getLatestEditAudit = (records = []) => {
+  return getAllEditAudits(records)[0] || null;
+};
+
+const getAllEditAudits = (records = []) => {
   const audits = records.flatMap((record) => (
     Array.isArray(record?.attendanceTimeEditAudit)
       ? record.attendanceTimeEditAudit.map((audit) => ({ ...audit, record }))
       : []
   ));
 
-  return audits.sort((a, b) => new Date(b.editedAt || 0).getTime() - new Date(a.editedAt || 0).getTime())[0] || null;
+  return audits.sort((a, b) => new Date(b.editedAt || 0).getTime() - new Date(a.editedAt || 0).getTime());
 };
 
 const formatAuditDateTime = (value) => {
@@ -1165,56 +1220,273 @@ const getTimeClassName = (highlight) => (
     return true;
   });
 
-  const getReportStatusLabel = (row) => {
-    if (row.status === 'absent') return 'absent';
-    return 'present';
+  const getReportStatusLabel = (cell) => {
+    if (!cell || cell.records.length === 0) return '-';
+    if (cell.status === 'absent') return 'Absent';
+    return 'Present';
   };
 
-  const getReportDayLabel = (row) => {
-    return row.dayType === 'half-day' ? 'Halfday' : 'fullday';
+  const getReportDayLabel = (cell) => {
+    if (!cell || cell.records.length === 0) return '-';
+    return cell.dayType === 'half-day' ? 'Half Day' : 'Full Day';
   };
 
-  const reportRows = Object.values(filteredAttendance.reduce((acc, record) => {
+  const getReportHoursLabel = (cell) => {
+    if (!cell || cell.records.length === 0) return '-';
+    return formatWorkingHours(cell.workingHours, { emptyValue: '0h 0m' });
+  };
+
+  const getReportStatusCode = (cell) => {
+    if (!cell || cell.records.length === 0) return '-';
+    return cell.status === 'absent' ? 'A' : 'P';
+  };
+
+  const getReportStatusCodeClassName = (cell) => {
+    const code = getReportStatusCode(cell);
+    if (code === 'P') return 'text-green-600 dark:text-green-300';
+    if (code === 'A') return 'text-red-600 dark:text-red-300';
+    return 'text-gray-300 dark:text-gray-600';
+  };
+
+  const getReportColumnTotals = (columnKey) => {
+    return reportRows.reduce((totals, row) => {
+      const code = getReportStatusCode(row.cells[columnKey]);
+      if (code === 'P') totals.present += 1;
+      if (code === 'A') totals.absent += 1;
+      totals.minutes += Math.round(Number(row.cells[columnKey]?.workingHours || 0) * 60);
+      return totals;
+    }, { present: 0, absent: 0, minutes: 0 });
+  };
+
+  const getReportRowTotals = (row) => {
+    return reportDateColumns.reduce((totals, column) => {
+      const cell = row.cells[column.key];
+      const code = getReportStatusCode(cell);
+      if (code === 'P') totals.present += 1;
+      if (code === 'A') totals.absent += 1;
+      totals.minutes += Math.round(Number(cell?.workingHours || 0) * 60);
+      return totals;
+    }, { present: 0, absent: 0, minutes: 0 });
+  };
+
+  const getReportGrandTotals = () => {
+    return reportRows.reduce((totals, row) => {
+      const rowTotals = getReportRowTotals(row);
+      totals.present += rowTotals.present;
+      totals.absent += rowTotals.absent;
+      totals.minutes += rowTotals.minutes;
+      return totals;
+    }, { present: 0, absent: 0, minutes: 0 });
+  };
+
+  const getMostCommonValue = (values = []) => {
+    const counts = values.filter(Boolean).reduce((acc, value) => {
+      acc[value] = (acc[value] || 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  };
+
+  const getEmployeeShiftAllotment = (row) => {
+    const shiftNames = reportDateColumns.flatMap((column) => row.cells[column.key]?.shiftNames || []);
+    return getMostCommonValue(shiftNames)
+      || row.employee?.shiftName
+      || row.employee?.shift?.displayName
+      || row.employee?.shift?.name
+      || 'No shift';
+  };
+
+  const getShiftAttendanceRows = () => {
+    const fromDate = reportDateColumns[0]?.label || '-';
+    const toDate = reportDateColumns[reportDateColumns.length - 1]?.label || '-';
+    const workingDays = reportDateColumns.length;
+
+    return reportRows.map((row, index) => {
+      const totals = getReportRowTotals(row);
+      return {
+        serialNo: index + 1,
+        vendorName: row.employee?.companyName || row.employee?.vendorName || row.employee?.department || 'N/A',
+        name: row.employee?.name || 'Unknown',
+        shiftAllotment: getEmployeeShiftAllotment(row),
+        fromDate,
+        toDate,
+        workingDays,
+        present: totals.present,
+        absent: totals.absent,
+        hours: formatWorkingHours(totals.minutes / 60, { emptyValue: '0h 0m' })
+      };
+    });
+  };
+
+  const getLocationDisplayName = (location) => (
+    location?.name
+    || location?.locationName
+    || location?.address
+    || location?.label
+    || ''
+  );
+
+  const normalizeReportMatchText = (value) => String(value || '').trim().toLowerCase();
+
+  const getRecordLocationName = (record) => (
+    getSelectedLocationName(record, 'in')
+    || getLocationText(record, 'in', { includeSelectedLocation: false })
+    || record?.locationName
+    || record?.checkInPlace
+    || ''
+  );
+
+  const getShiftMatrixLocations = () => {
+    const configuredLocations = (locations || [])
+      .map(getLocationDisplayName)
+      .filter(Boolean);
+    const recordLocations = filteredAttendance
+      .map(getRecordLocationName)
+      .filter((name) => name && name !== 'Location unavailable');
+    return [...new Set([...configuredLocations, ...recordLocations])];
+  };
+
+  const getShiftMatrixShifts = () => {
+    const configuredShifts = (shifts || [])
+      .map((shift) => shift.displayName || shift.name)
+      .filter(Boolean);
+    const recordShifts = filteredAttendance
+      .map(formatShiftDisplay)
+      .filter(Boolean);
+    return [...new Set([...configuredShifts, ...recordShifts])];
+  };
+
+  const isCompletedShiftRecord = (record) => {
+    const status = String(record?.status || '').toLowerCase();
+    return Boolean(record?.checkIn)
+      && status !== 'absent'
+      && status !== 'cancelled'
+      && status !== 'canceled'
+      && status !== 'not-attended'
+      && status !== 'not attended';
+  };
+
+  const hasWorkedLocationShift = (dateKey, locationName, shiftName) => {
+    const targetLocation = normalizeReportMatchText(locationName);
+    const targetShift = normalizeReportMatchText(shiftName);
+
+    return filteredAttendance.some((record) => {
+      const recordDate = normalizeDateString(record.date || record.checkIn);
+      if (recordDate !== dateKey || !isCompletedShiftRecord(record)) return false;
+
+      const recordLocation = normalizeReportMatchText(getRecordLocationName(record));
+      const recordShift = normalizeReportMatchText(formatShiftDisplay(record));
+      return recordLocation === targetLocation && recordShift === targetShift;
+    });
+  };
+
+  const getShiftMatrixGroups = () => {
+    const matrixShifts = getShiftMatrixShifts();
+    return getShiftMatrixLocations().map((locationName) => ({
+      locationName,
+      shifts: matrixShifts
+    })).filter((group) => group.shifts.length > 0);
+  };
+
+  const formatReportDateLong = (isoDate) => {
+    const date = new Date(isoDate);
+    if (Number.isNaN(date.getTime())) return isoDate || '-';
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
+
+  const buildReportCell = (records = [], employee, dateKey) => {
+    const cell = {
+      key: `${getId(employee) || 'unknown'}-${dateKey}`,
+      dateKey,
+      employee,
+      status: 'present',
+      dayType: 'full-day',
+      shiftNames: [],
+      locationNames: [],
+      workingHours: 0,
+      records
+    };
+
+    records.forEach((record) => {
+      const status = String(record.status || '').toLowerCase();
+      if (status === 'absent') cell.status = 'absent';
+      if (status === 'half-day') cell.dayType = 'half-day';
+
+      const shiftName = formatShiftDisplay(record);
+      if (shiftName && !cell.shiftNames.includes(shiftName)) cell.shiftNames.push(shiftName);
+
+      const locationName = getSelectedLocationName(record, 'in') || getLocationText(record, 'in', { includeSelectedLocation: false });
+      if (locationName && locationName !== 'Location unavailable' && !cell.locationNames.includes(locationName)) {
+        cell.locationNames.push(locationName);
+      }
+
+      cell.workingHours += Number(record.workingHours) || 0;
+    });
+
+    return cell;
+  };
+
+  const getReportDateColumns = () => {
+    const toISO = (date) => {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const dd = String(date.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const startISO = reportDateRange?.start || `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+    const endISO = reportDateRange?.end || toISO(new Date(selectedYear, selectedMonth, 0));
+    const start = new Date(startISO);
+    const end = new Date(endISO);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+
+    const columns = [];
+    const cursor = new Date(start);
+    cursor.setHours(0, 0, 0, 0);
+    const limit = new Date(end);
+    limit.setHours(0, 0, 0, 0);
+
+    while (cursor <= limit) {
+      const iso = toISO(cursor);
+      columns.push({
+        key: iso,
+        day: cursor.toLocaleDateString('en-US', { weekday: 'short' }),
+        label: formatExcelDate(iso),
+        isWeekend: cursor.getDay() === 0 || cursor.getDay() === 6
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return columns;
+  };
+
+  const reportDateColumns = getReportDateColumns();
+  const reportRecordsByEmployeeDate = filteredAttendance.reduce((acc, record) => {
     if (!record || !record.employee) return acc;
     const employeeId = getId(record.employee) || 'unknown';
-    const dateKey = normalizeDateString(record.date || record.checkIn) || 'unknown';
-    const key = `${employeeId}-${dateKey}`;
-    const status = String(record.status || '').toLowerCase();
-
-    if (!acc[key]) {
-      acc[key] = {
-        key,
-        date: record.date || record.checkIn,
-        employee: record.employee,
-        status: status === 'absent' ? 'absent' : 'present',
-        dayType: status === 'half-day' ? 'half-day' : 'full-day',
-        shiftNames: [],
-        locationNames: [],
-        workingHours: 0,
-        records: []
-      };
-    }
-
-    const row = acc[key];
-    row.records.push(record);
-    if (status === 'absent') row.status = 'absent';
-    if (status === 'half-day') row.dayType = 'half-day';
-
-    const shiftName = formatShiftDisplay(record);
-    if (shiftName && !row.shiftNames.includes(shiftName)) row.shiftNames.push(shiftName);
-
-    const locationName = getSelectedLocationName(record, 'in') || getLocationText(record, 'in', { includeSelectedLocation: false });
-    if (locationName && locationName !== 'Location unavailable' && !row.locationNames.includes(locationName)) {
-      row.locationNames.push(locationName);
-    }
-
-    row.workingHours += Number(record.workingHours) || 0;
+    const dateKey = normalizeDateString(record.date || record.checkIn);
+    if (!dateKey) return acc;
+    if (!acc[employeeId]) acc[employeeId] = {};
+    if (!acc[employeeId][dateKey]) acc[employeeId][dateKey] = [];
+    acc[employeeId][dateKey].push(record);
     return acc;
-  }, {})).sort((a, b) => {
-    const dateDiff = new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
-    if (dateDiff) return dateDiff;
-    return String(a.employee?.name || '').localeCompare(String(b.employee?.name || ''));
-  });
+  }, {});
+
+  const reportRows = (employees || [])
+    .filter((employee) => selectedEmployee === 'all' || String(employee._id) === String(selectedEmployee))
+    .map((employee) => {
+      const cells = reportDateColumns.reduce((acc, column) => {
+        const records = reportRecordsByEmployeeDate[getId(employee)]?.[normalizeDateString(column.key)] || [];
+        acc[column.key] = buildReportCell(records, employee, column.key);
+        return acc;
+      }, {});
+      return { employee, cells };
+    });
 
   const overallStats = calculateOverallStats();
 
@@ -1248,31 +1520,228 @@ const getTimeClassName = (highlight) => (
     window.URL.revokeObjectURL(url);
   };
 
-  const exportReportToCSV = () => {
-    const selectedDateLabel = dateFilter ? formatExcelDate(dateFilter) : '';
-    const headers = ['Employee', 'Department', 'Status', 'Day', 'Shift', 'Location', 'Hrs(total working hrs)', 'Edited By'];
-    const dateRow = headers.map(() => selectedDateLabel);
-    const csvData = reportRows.map(row => [
-      row.employee?.name || 'N/A',
-      row.employee?.department || 'N/A',
-      getReportStatusLabel(row),
-      getReportDayLabel(row),
-      row.shiftNames.join(', ') || '--',
-      row.locationNames.join(', ') || '--',
-      formatWorkingHours(row.workingHours),
-      getLatestEditAudit(row.records)?.editedByName || getLatestEditAudit(row.records)?.editedByEmail || '--'
-    ]);
+  const escapeExcelHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
-    const escape = (v) => `"${String(v).replace(/"/g, '""')}"`;
-    const csvContent = [dateRow.map(escape).join(','), headers.map(escape).join(',')]
-      .concat(csvData.map(row => row.map(escape).join(',')))
-      .join('\n');
+  const cellHtml = (value, className = '', attrs = '') => (
+    `<td class="${className}" ${attrs}>${escapeExcelHtml(value)}</td>`
+  );
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+  const headerHtml = (value, className = '', attrs = '') => (
+    `<th class="${className}" ${attrs}>${escapeExcelHtml(value)}</th>`
+  );
+
+  const buildReportTable1Html = () => {
+    const rows = reportRows.map((row) => (
+      `<tr>
+        ${cellHtml(row.employee?.name || 'Unknown', 'sticky-name')}
+        ${cellHtml(row.employee?.department || 'N/A', 'sticky-role')}
+        ${reportDateColumns.map((column) => {
+          const cell = row.cells[column.key];
+          const text = cell?.records?.length
+            ? `${getReportStatusLabel(cell)} | ${getReportDayLabel(cell)} | ${cell.shiftNames.join(' / ') || 'No shift'} | ${cell.locationNames.join(' / ') || 'No location'} | ${getReportHoursLabel(cell)}`
+            : '-';
+          return cellHtml(text, column.isWeekend ? 'weekend text-left' : 'text-left');
+        }).join('')}
+      </tr>`
+    )).join('');
+
+    return `
+      <h2>Table 1 - Attendance Calendar Detail</h2>
+      <table>
+        <thead>
+          <tr>
+            ${headerHtml('Employee', 'dark-header')}
+            ${headerHtml('Department', 'dark-header')}
+            ${reportDateColumns.map((column) => headerHtml(`${column.day} ${column.label}`, column.isWeekend ? 'weekend-header' : 'dark-header')).join('')}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  };
+
+  const buildReportTable2Html = () => {
+    const bodyRows = reportRows.map((row) => {
+      const rowTotals = getReportRowTotals(row);
+      return `<tr>
+        ${cellHtml(row.employee?.name || 'Unknown', 'sticky-name')}
+        ${cellHtml(row.employee?.position || row.employee?.role || row.employee?.department || 'N/A', 'sticky-role')}
+        ${reportDateColumns.map((column) => {
+          const cell = row.cells[column.key];
+          const code = getReportStatusCode(cell);
+          return cellHtml(code, code === 'P' ? 'present-code' : code === 'A' ? 'absent-code' : 'empty-code');
+        }).join('')}
+        ${cellHtml(rowTotals.present, 'present-total')}
+        ${cellHtml(rowTotals.absent, 'absent-total')}
+        ${cellHtml(formatWorkingHours(rowTotals.minutes / 60, { emptyValue: '0h 0m' }), 'hours-total')}
+      </tr>`;
+    }).join('');
+
+    const grandTotals = getReportGrandTotals();
+    return `
+      <h2>Table 2 - Attendance Matrix</h2>
+      <table>
+        <thead>
+          <tr>
+            ${headerHtml('Employee Name', 'dark-header', 'rowspan="2"')}
+            ${headerHtml('Role', 'dark-header', 'rowspan="2"')}
+            ${reportDateColumns.map((column) => headerHtml(new Date(column.key).getDate(), column.isWeekend ? 'weekend-header' : 'matrix-header')).join('')}
+            ${headerHtml('P', 'present-header', 'rowspan="2"')}
+            ${headerHtml('A', 'absent-header', 'rowspan="2"')}
+            ${headerHtml('Hours', 'matrix-header', 'rowspan="2"')}
+          </tr>
+          <tr>${reportDateColumns.map((column) => headerHtml(column.day, column.isWeekend ? 'weekend-header' : 'matrix-header')).join('')}</tr>
+        </thead>
+        <tbody>
+          ${bodyRows}
+          <tr class="total-row">
+            ${cellHtml('TOTAL:', 'text-right', 'colspan="2"')}
+            ${reportDateColumns.map((column) => cellHtml(getReportColumnTotals(column.key).present, 'hours-total')).join('')}
+            ${cellHtml(grandTotals.present, 'present-total')}
+            ${cellHtml(grandTotals.absent, 'absent-total')}
+            ${cellHtml(formatWorkingHours(grandTotals.minutes / 60, { emptyValue: '0h 0m' }), 'hours-total')}
+          </tr>
+        </tbody>
+      </table>
+    `;
+  };
+
+  const buildReportTable3Html = () => {
+    const rows = getShiftAttendanceRows().map((row) => (
+      `<tr>
+        ${cellHtml(row.serialNo, 'text-center')}
+        ${cellHtml(row.vendorName)}
+        ${cellHtml(row.name, 'bold')}
+        ${cellHtml(row.shiftAllotment, 'shift-cell')}
+        ${cellHtml(row.fromDate, 'text-center')}
+        ${cellHtml(row.toDate, 'text-center')}
+        ${cellHtml(row.workingDays, 'text-center bold')}
+        ${cellHtml(row.present, 'present-total')}
+        ${cellHtml(row.absent, 'absent-total')}
+        ${cellHtml(row.hours, 'hours-total')}
+      </tr>`
+    )).join('');
+
+    return `
+      <h2>Table 3 - Shift Based Overall Attendance</h2>
+      <table>
+        <thead>
+          <tr>
+            ${['S.No', 'Vendor Name', 'Name', 'Shift Allotment', 'From', 'To', 'Actual Org Working Days'].map((header) => headerHtml(header, 'yellow-header')).join('')}
+            ${headerHtml('Present', 'present-header')}
+            ${headerHtml('Absent', 'absent-header')}
+            ${headerHtml('Hours', 'yellow-header')}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  };
+
+  const buildReportTable4Html = () => {
+    const groups = getShiftMatrixGroups();
+    const headerOne = groups.map((group) => headerHtml(group.locationName, 'orange-header', `colspan="${group.shifts.length}"`)).join('');
+    const headerTwo = groups.flatMap((group) => group.shifts.map((shiftName) => headerHtml(shiftName, 'matrix-header'))).join('');
+    const rows = reportDateColumns.map((column) => (
+      `<tr>
+        ${cellHtml(formatReportDateLong(column.key), 'sticky-name')}
+        ${groups.flatMap((group) => group.shifts.map((shiftName) => {
+          const worked = hasWorkedLocationShift(column.key, group.locationName, shiftName);
+          return cellHtml(worked ? '✓' : '✕', worked ? 'tick-cell' : 'cross-cell');
+        })).join('')}
+      </tr>`
+    )).join('');
+
+    return `
+      <h2>Table 4 - Location Shift Completion Check</h2>
+      <table>
+        <thead>
+          <tr>${headerHtml('Date', 'orange-header', 'rowspan="2"')}${headerOne}</tr>
+          <tr>${headerTwo}</tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  };
+
+  const exportReportToExcel = () => {
+    const tableExportMap = {
+      table1: {
+        title: 'Table 1 - Attendance Calendar Detail',
+        fileName: `attendance-table-1-${selectedMonth}-${selectedYear}.xls`,
+        content: buildReportTable1Html()
+      },
+      table2: {
+        title: 'Table 2 - Attendance Matrix',
+        fileName: `attendance-table-2-${selectedMonth}-${selectedYear}.xls`,
+        content: buildReportTable2Html()
+      },
+      table3: {
+        title: 'Table 3 - Shift Based Overall Attendance',
+        fileName: `attendance-table-3-${selectedMonth}-${selectedYear}.xls`,
+        content: buildReportTable3Html()
+      },
+      table4: {
+        title: 'Table 4 - Location Shift Completion Check',
+        fileName: `attendance-table-4-${selectedMonth}-${selectedYear}.xls`,
+        content: buildReportTable4Html()
+      }
+    };
+    const selectedExport = tableExportMap[reportTableView] || tableExportMap.table1;
+
+    const html = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+        <head>
+          <meta charset="UTF-8" />
+          <style>
+            body { font-family: Calibri, Arial, sans-serif; color: #111827; }
+            h1 { font-size: 18px; margin: 0 0 12px; }
+            h2 { font-size: 15px; margin: 24px 0 8px; color: #111827; }
+            table { border-collapse: collapse; margin-bottom: 24px; }
+            th, td { border: 1px solid #9ca3af; padding: 6px 8px; font-size: 12px; vertical-align: middle; mso-number-format: "\\@"; }
+            th { font-weight: 700; }
+            .dark-header { background: #0f172a; color: #bfdbfe; }
+            .matrix-header { background: #f3f4f6; color: #111827; text-align: center; font-weight: 700; }
+            .weekend-header { background: #fee2e2; color: #b91c1c; text-align: center; font-weight: 700; }
+            .yellow-header { background: #facc15; color: #111827; text-align: center; font-weight: 700; }
+            .orange-header { background: #fed7aa; color: #111827; text-align: center; font-weight: 700; }
+            .present-header { background: #bbf7d0; color: #14532d; text-align: center; font-weight: 700; }
+            .absent-header { background: #fecaca; color: #7f1d1d; text-align: center; font-weight: 700; }
+            .sticky-name { background: #ffffff; color: #111827; font-weight: 700; }
+            .sticky-role { background: #ffffff; color: #374151; }
+            .weekend { background: #fef2f2; color: #b91c1c; }
+            .present-code { color: #16a34a; text-align: center; font-weight: 700; }
+            .absent-code { color: #dc2626; text-align: center; font-weight: 700; }
+            .empty-code { color: #9ca3af; text-align: center; font-weight: 700; }
+            .present-total { background: #dcfce7; color: #14532d; text-align: center; font-weight: 700; }
+            .absent-total { background: #fee2e2; color: #7f1d1d; text-align: center; font-weight: 700; }
+            .hours-total { background: #f3f4f6; color: #111827; text-align: center; font-weight: 700; }
+            .shift-cell { background: #e5e7eb; color: #111827; }
+            .tick-cell { color: #16a34a; text-align: center; font-size: 16px; font-weight: 700; }
+            .cross-cell { color: #dc2626; text-align: center; font-size: 16px; font-weight: 700; }
+            .total-row td { background: #f3f4f6; font-weight: 700; }
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+            .text-left { text-align: left; }
+            .bold { font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeExcelHtml(selectedExport.title)} - ${escapeExcelHtml(reportDateColumns[0]?.label || '')} to ${escapeExcelHtml(reportDateColumns[reportDateColumns.length - 1]?.label || '')}</h1>
+          ${selectedExport.content}
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `attendance-report-table-${selectedMonth}-${selectedYear}.csv`;
+    a.download = selectedExport.fileName;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -1341,18 +1810,20 @@ const getTimeClassName = (highlight) => (
           <h1 className="text-2xl font-bold text-gray-900">Attendance Report</h1>
           <p className="text-gray-600">Comprehensive attendance overview for all employees</p>
         </div>
-        
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Button
-            onClick={exportToCSV}
-            variant="outline"
-            className="flex items-center space-x-2"
-            size="sm"
-          >
-            <DownloadIcon className="w-4 h-4" />
-            <span className="hidden sm:inline">Export CSV</span>
-          </Button>
-        </div>
+
+        {mobileView !== 'report' && (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              onClick={exportToCSV}
+              variant="outline"
+              className="flex items-center space-x-2"
+              size="sm"
+            >
+              <DownloadIcon className="w-4 h-4" />
+              <span className="hidden sm:inline">Export CSV</span>
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Mobile Navigation */}
@@ -1367,122 +1838,162 @@ const getTimeClassName = (highlight) => (
           </Card.Title>
         </Card.Header>
         <Card.Content>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-            <div className="sm:col-span-2 xl:col-span-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Employee
-              </label>
-              <select
-                value={selectedEmployee}
-                onChange={(e) => setSelectedEmployee(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                <option value="all" className="dark:bg-gray-800 dark:text-gray-100">All Employees</option>
-                {employees.map(emp => (
-                  <option key={emp._id} value={emp._id} className="dark:bg-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {emp.name} - {emp.department}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {mobileView === 'report' ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                  From Date
+                </label>
+                <input
+                  type="date"
+                  value={reportDateRange.start || ''}
+                  onChange={(e) => {
+                    const nextStart = e.target.value;
+                    setReportDateRange((prev) => {
+                      const nextEnd = prev.end && nextStart && new Date(prev.end) < new Date(nextStart)
+                        ? nextStart
+                        : prev.end;
+                      return { start: nextStart, end: nextEnd };
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+                />
+              </div>
 
-            <div className="lg:col-span-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Status
-              </label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                <option value="all" className="dark:bg-gray-800 dark:text-gray-100">All Status</option>
-                <option value="present" className="dark:bg-gray-800 dark:text-gray-100">Present</option>
-                <option value="half-day" className="dark:bg-gray-800 dark:text-gray-100">Half Day</option>
-                <option value="permission" className="dark:bg-gray-800 dark:text-gray-100">With Permission</option>
-                <option value="absent" className="dark:bg-gray-800 dark:text-gray-100">Absent</option>
-                <option value="working" className="dark:bg-gray-800 dark:text-gray-100">Working Now</option>
-              </select>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                  To Date
+                </label>
+                <input
+                  type="date"
+                  value={reportDateRange.end || ''}
+                  min={reportDateRange.start || undefined}
+                  onChange={(e) => {
+                    const nextEnd = e.target.value;
+                    setReportDateRange((prev) => ({ start: prev.start || nextEnd, end: nextEnd }));
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+                />
+              </div>
             </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+                <div className="sm:col-span-2 xl:col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Employee
+                  </label>
+                  <select
+                    value={selectedEmployee}
+                    onChange={(e) => setSelectedEmployee(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    <option value="all" className="dark:bg-gray-800 dark:text-gray-100">All Employees</option>
+                    {employees.map(emp => (
+                      <option key={emp._id} value={emp._id} className="dark:bg-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700">
+                        {emp.name} - {emp.department}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            <div className="lg:col-span-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Month
-              </label>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                {Array.from({ length: 12 }, (_, i) => (
-                  <option key={i + 1} value={i + 1} className="dark:bg-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {new Date(2000, i).toLocaleString('default', { month: 'short' })}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <div className="lg:col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    <option value="all" className="dark:bg-gray-800 dark:text-gray-100">All Status</option>
+                    <option value="present" className="dark:bg-gray-800 dark:text-gray-100">Present</option>
+                    <option value="half-day" className="dark:bg-gray-800 dark:text-gray-100">Half Day</option>
+                    <option value="permission" className="dark:bg-gray-800 dark:text-gray-100">With Permission</option>
+                    <option value="absent" className="dark:bg-gray-800 dark:text-gray-100">Absent</option>
+                    <option value="working" className="dark:bg-gray-800 dark:text-gray-100">Working Now</option>
+                  </select>
+                </div>
 
-            <div className="lg:col-span-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Year
-              </label>
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                {Array.from({ length: 5 }, (_, i) => {
-                  const year = new Date().getFullYear() - 2 + i;
-                  return <option key={year} value={year} className="dark:bg-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700">{year}</option>;
-                })}
-              </select>
-            </div>
-          </div>
-          
-          {/* Date Filter - Full width on mobile */}
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Specific Date
-            </label>
-            <input
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-            />
-            {/* Date Presets */}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                onClick={() => applyDatePreset('today')}
-                className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'today' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
-              >
-                Today
-              </button>
-              <button
-                onClick={() => applyDatePreset('yesterday')}
-                className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'yesterday' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
-              >
-                Yesterday
-              </button>
-              <button
-                onClick={() => applyDatePreset('last7')}
-                className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'last7' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
-              >
-                Last 7 Days
-              </button>
-              <button
-                onClick={() => applyDatePreset('thisMonth')}
-                className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'thisMonth' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
-              >
-                This Month
-              </button>
-              <button
-                onClick={() => applyDatePreset('all')}
-                className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'all' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
-              >
-                All
-              </button>
-            </div>
-          </div>
+                <div className="lg:col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Month
+                  </label>
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <option key={i + 1} value={i + 1} className="dark:bg-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700">
+                        {new Date(2000, i).toLocaleString('default', { month: 'short' })}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="lg:col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Year
+                  </label>
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    {Array.from({ length: 5 }, (_, i) => {
+                      const year = new Date().getFullYear() - 2 + i;
+                      return <option key={year} value={year} className="dark:bg-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700">{year}</option>;
+                    })}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Specific Date
+                </label>
+                <input
+                  type="date"
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => applyDatePreset('today')}
+                    className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'today' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
+                  >
+                    Today
+                  </button>
+                  <button
+                    onClick={() => applyDatePreset('yesterday')}
+                    className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'yesterday' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
+                  >
+                    Yesterday
+                  </button>
+                  <button
+                    onClick={() => applyDatePreset('last7')}
+                    className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'last7' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
+                  >
+                    Last 7 Days
+                  </button>
+                  <button
+                    onClick={() => applyDatePreset('thisMonth')}
+                    className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'thisMonth' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    onClick={() => applyDatePreset('all')}
+                    className={`px-3 py-1 text-sm rounded-md border ${datePreset === 'all' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700'}`}
+                  >
+                    All
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </Card.Content>
       </Card>
 
@@ -1928,178 +2439,617 @@ const getTimeClassName = (highlight) => (
           <Card.Header>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Card.Title className="text-lg font-semibold text-gray-900">
-                Report ({reportRows.length} rows)
+                Attendance Calendar ({reportRows.length} employees)
               </Card.Title>
               <Button
-                onClick={exportReportToCSV}
+                onClick={exportReportToExcel}
                 variant="outline"
                 size="sm"
                 className="flex items-center space-x-2"
               >
                 <DownloadIcon className="w-4 h-4" />
-                <span>Export CSV</span>
+                <span>Export Excel</span>
               </Button>
             </div>
           </Card.Header>
           <Card.Content>
+            <div className="mb-4 inline-flex rounded-lg border border-gray-200 bg-gray-100 p-1 dark:border-gray-700 dark:bg-gray-800">
+              <button
+                type="button"
+                onClick={() => setReportTableView('table1')}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                  reportTableView === 'table1'
+                    ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-900 dark:text-blue-300'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                }`}
+              >
+                Table 1
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportTableView('table2')}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                  reportTableView === 'table2'
+                    ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-900 dark:text-blue-300'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                }`}
+              >
+                Table 2
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportTableView('table3')}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                  reportTableView === 'table3'
+                    ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-900 dark:text-blue-300'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                }`}
+              >
+                Table 3
+              </button>
+              {/* Table 4 is intentionally hidden for now; keep implementation below for later refinement.
+              <button
+                type="button"
+                onClick={() => setReportTableView('table4')}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                  reportTableView === 'table4'
+                    ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-900 dark:text-blue-300'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+                }`}
+              >
+                Table 4
+              </button>
+              */}
+            </div>
+
+            {reportTableView === 'table1' && (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <table className="min-w-max divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-800">
-                  {dateFilter && (
-                    <tr>
-                      {['employee', 'department', 'status', 'day', 'shift', 'location', 'hours', 'editedBy', 'actions'].map((column) => (
-                        <th key={column} className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-blue-200">
-                          {column === 'actions' ? '' : formatExcelDate(dateFilter)}
-                        </th>
-                      ))}
-                    </tr>
-                  )}
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Employee</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Department</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Day</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Shift</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Location</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Hrs(total working hrs)</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Edited By</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-blue-200 uppercase tracking-wider">Actions</th>
+                    <th
+                      className="sticky z-20 bg-gray-50 px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:bg-gray-800 dark:text-blue-200"
+                      style={{ left: 0, width: '14rem', minWidth: '14rem' }}
+                    >
+                      Employee
+                    </th>
+                    <th
+                      className="sticky z-20 bg-gray-50 px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:bg-gray-800 dark:text-blue-200"
+                      style={{ left: '14rem', width: '10rem', minWidth: '10rem' }}
+                    >
+                      Department
+                    </th>
+                    {reportDateColumns.map((column) => (
+                      <th
+                        key={column.key}
+                        className={`px-3 py-3 text-left text-xs font-medium uppercase tracking-wider ${
+                          column.isWeekend
+                            ? 'bg-red-50 text-red-500 dark:bg-red-950/30 dark:text-red-300'
+                            : 'text-gray-500 dark:text-blue-200'
+                        }`}
+                        style={{ width: '8.5rem', minWidth: '8.5rem' }}
+                      >
+                        <div>{column.day}</div>
+                        <div className="mt-1 font-semibold normal-case tracking-normal text-gray-900 dark:text-gray-100">{column.label}</div>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
                   {reportRows.map((row) => {
-                    const editableRecord = row.records[0];
-                    const latestAudit = getLatestEditAudit(row.records);
-                    const isEditingRow = Boolean(
-                      editableRecord
-                      && reportEdit.isEditing
-                      && String(reportEdit.record?._id) === String(editableRecord._id)
-                    );
-                    const controlClassName = 'w-36 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500';
+                    const controlClassName = 'w-28 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500';
 
                     return (
-                      <tr key={row.key} className={isEditingRow ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">{row.employee?.name || 'Unknown'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">{row.employee?.department || 'N/A'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
-                          {isEditingRow ? (
-                            <select
-                              value={reportEditForm.status}
-                              onChange={(e) => setReportEditForm((prev) => ({ ...prev, status: e.target.value }))}
-                              className={controlClassName}
-                            >
-                              <option value="present" className="dark:bg-gray-800 dark:text-gray-100">present</option>
-                              <option value="absent" className="dark:bg-gray-800 dark:text-gray-100">absent</option>
-                            </select>
-                          ) : getReportStatusLabel(row)}
+                      <tr key={row.employee?._id || row.employee?.name} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <td
+                          className="sticky z-10 bg-white px-4 py-3 align-top text-sm font-medium text-gray-900 dark:bg-gray-900 dark:text-gray-100"
+                          style={{ left: 0, width: '14rem', minWidth: '14rem' }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
+                              {row.employee?.name?.charAt(0) || 'E'}
+                            </div>
+                            <span className="whitespace-normal">{row.employee?.name || 'Unknown'}</span>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
-                          {isEditingRow ? (
-                            <select
-                              value={reportEditForm.dayType}
-                              onChange={(e) => setReportEditForm((prev) => ({ ...prev, dayType: e.target.value }))}
-                              className={controlClassName}
-                            >
-                              <option value="full-day" className="dark:bg-gray-800 dark:text-gray-100">fullday</option>
-                              <option value="half-day" className="dark:bg-gray-800 dark:text-gray-100">Halfday</option>
-                            </select>
-                          ) : getReportDayLabel(row)}
+                        <td
+                          className="sticky z-10 bg-white px-4 py-3 align-top text-sm text-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                          style={{ left: '14rem', width: '10rem', minWidth: '10rem' }}
+                        >
+                          {row.employee?.department || 'N/A'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
-                          {isEditingRow ? (
-                            <select
-                              value={reportEditForm.shiftId}
-                              onChange={(e) => setReportEditForm((prev) => ({ ...prev, shiftId: e.target.value }))}
-                              className={controlClassName}
+                        {reportDateColumns.map((column) => {
+                          const cell = row.cells[column.key];
+                          const editableRecord = cell?.records?.[0];
+                          const latestAudit = getLatestEditAudit(cell?.records || []);
+                          const isEditingCell = Boolean(
+                            editableRecord
+                            && reportEdit.isEditing
+                            && String(reportEdit.record?._id) === String(editableRecord._id)
+                          );
+
+                          return (
+                            <td
+                              key={`${row.employee?._id || row.employee?.name}-${column.key}`}
+                              className={`align-top ${isEditingCell ? 'bg-blue-50 dark:bg-blue-900/30' : column.isWeekend ? 'bg-red-50/40 dark:bg-red-950/10' : ''}`}
+                              style={{ width: '8.5rem', minWidth: '8.5rem' }}
                             >
-                              <option value="" className="dark:bg-gray-800 dark:text-gray-100">No shift</option>
-                              {shifts.map((shift) => (
-                                <option key={shift._id} value={shift._id} className="dark:bg-gray-800 dark:text-gray-100">
-                                  {shift.displayName || shift.name}
-                                </option>
-                              ))}
-                            </select>
-                          ) : row.shiftNames.join(', ') || '--'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
-                          {isEditingRow ? (
-                            <select
-                              value={reportEditForm.locationId}
-                              onChange={(e) => setReportEditForm((prev) => ({ ...prev, locationId: e.target.value }))}
-                              className={controlClassName}
-                            >
-                              <option value="" className="dark:bg-gray-800 dark:text-gray-100">No location</option>
-                              {locations.map((location) => (
-                                <option key={location._id} value={location._id} className="dark:bg-gray-800 dark:text-gray-100">
-                                  {location.name || location.locationName || location.address || 'Location'}
-                                </option>
-                              ))}
-                            </select>
-                          ) : row.locationNames.join(', ') || '--'}
-                        </td>
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{formatWorkingHours(row.workingHours)}</td>
-                        <td className="px-4 py-3 text-sm whitespace-nowrap">
-                          {latestAudit ? (
-                            <button
-                              type="button"
-                              onClick={() => setEditAuditModal({ isOpen: true, row, audit: latestAudit })}
-                              className="text-left text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100"
-                            >
-                              <span className="block font-medium">{latestAudit.editedByName || latestAudit.editedByEmail || 'Admin'}</span>
-                              <span className="block text-xs text-gray-500 dark:text-gray-400">{formatDate(latestAudit.editedAt)}</span>
-                            </button>
-                          ) : (
-                            <span className="text-xs text-gray-400">--</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm whitespace-nowrap">
-                          {canEditAttendanceTime && editableRecord ? (
-                            isEditingRow ? (
-                              <div className="flex flex-col gap-1">
-                                <div className="flex items-center space-x-3">
-                                  <button
-                                    type="button"
-                                    onClick={handleSaveReportAttendanceTime}
-                                    disabled={savingReportEdit}
-                                    className="text-green-700 dark:text-green-300 hover:text-green-900 dark:hover:text-green-200 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    {savingReportEdit ? 'Saving...' : 'Save'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={closeReportRowEdit}
-                                    disabled={savingReportEdit}
-                                    className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    Cancel
-                                  </button>
+                              {cell?.records?.length > 0 ? (
+                                <div className="relative min-h-28 space-y-1 px-2 py-2 text-xs text-gray-700 dark:text-gray-200">
+                                  {latestAudit && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditAuditModal({ isOpen: true, row: cell, audit: latestAudit })}
+                                      className="absolute right-1.5 top-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-800 hover:bg-amber-200 dark:bg-amber-900/60 dark:text-amber-100"
+                                    >
+                                      Edited
+                                    </button>
+                                  )}
+
+                                  <div className="pr-12">
+                                    {isEditingCell ? (
+                                      <select
+                                        value={reportEditForm.status}
+                                        onChange={(e) => setReportEditForm((prev) => ({ ...prev, status: e.target.value }))}
+                                        className={controlClassName}
+                                      >
+                                        <option value="present" className="dark:bg-gray-800 dark:text-gray-100">Present</option>
+                                        <option value="absent" className="dark:bg-gray-800 dark:text-gray-100">Absent</option>
+                                      </select>
+                                    ) : (
+                                      <span className={`font-semibold ${cell.status === 'absent' ? 'text-red-600 dark:text-red-300' : 'text-green-700 dark:text-green-300'}`}>
+                                        {getReportStatusLabel(cell)}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div>
+                                    {isEditingCell ? (
+                                      <select
+                                        value={reportEditForm.dayType}
+                                        onChange={(e) => setReportEditForm((prev) => ({ ...prev, dayType: e.target.value }))}
+                                        className={controlClassName}
+                                      >
+                                        <option value="full-day" className="dark:bg-gray-800 dark:text-gray-100">Full Day</option>
+                                        <option value="half-day" className="dark:bg-gray-800 dark:text-gray-100">Half Day</option>
+                                      </select>
+                                    ) : getReportDayLabel(cell)}
+                                  </div>
+
+                                  <div>
+                                    {isEditingCell ? (
+                                      <select
+                                        value={reportEditForm.shiftId}
+                                        onChange={(e) => setReportEditForm((prev) => ({ ...prev, shiftId: e.target.value }))}
+                                        className={controlClassName}
+                                      >
+                                        <option value="" className="dark:bg-gray-800 dark:text-gray-100">No shift</option>
+                                        {shifts.map((shift) => (
+                                          <option key={shift._id} value={shift._id} className="dark:bg-gray-800 dark:text-gray-100">
+                                            {shift.displayName || shift.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : cell.shiftNames.join(', ') || '--'}
+                                  </div>
+
+                                  <div>
+                                    {isEditingCell ? (
+                                      <select
+                                        value={reportEditForm.locationId}
+                                        onChange={(e) => setReportEditForm((prev) => ({ ...prev, locationId: e.target.value }))}
+                                        className={controlClassName}
+                                      >
+                                        <option value="" className="dark:bg-gray-800 dark:text-gray-100">No location</option>
+                                        {locations.map((location) => (
+                                          <option key={location._id} value={location._id} className="dark:bg-gray-800 dark:text-gray-100">
+                                            {location.name || location.locationName || location.address || 'Location'}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : cell.locationNames.join(', ') || '--'}
+                                  </div>
+
+                                  <div className="font-semibold text-gray-900 dark:text-gray-100">
+                                    {getReportHoursLabel(cell)}
+                                  </div>
+
+                                  {canEditAttendanceTime && editableRecord && (
+                                    <div className="border-t border-gray-100 pt-1 dark:border-gray-700">
+                                      {isEditingCell ? (
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-3">
+                                            <button
+                                              type="button"
+                                              onClick={handleSaveReportAttendanceTime}
+                                              disabled={savingReportEdit}
+                                              className="font-medium text-green-700 hover:text-green-900 disabled:cursor-not-allowed disabled:opacity-60 dark:text-green-300"
+                                            >
+                                              {savingReportEdit ? 'Saving...' : 'Save'}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={closeReportRowEdit}
+                                              disabled={savingReportEdit}
+                                              className="font-medium text-gray-600 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60 dark:text-gray-300"
+                                            >
+                                              Cancel
+                                            </button>
+                                          </div>
+                                          {reportEditError && (
+                                            <div className="whitespace-normal text-xs text-red-600 dark:text-red-300">{reportEditError}</div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => openReportRowEdit(editableRecord)}
+                                          className="inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-900 dark:text-blue-300"
+                                        >
+                                          <EditIcon className="w-4 h-4" />
+                                          <span>Edit</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                                {reportEditError && (
-                                  <span className="max-w-48 whitespace-normal text-xs text-red-600 dark:text-red-300">{reportEditError}</span>
-                                )}
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => openReportRowEdit(editableRecord)}
-                                className="inline-flex items-center space-x-1 text-blue-600 hover:text-blue-900"
-                              >
-                                <EditIcon className="w-4 h-4" />
-                                <span>Edit</span>
-                              </button>
-                            )
-                          ) : (
-                            <span className="text-xs text-gray-400">--</span>
-                          )}
-                        </td>
+                              ) : (
+                                <div className="flex min-h-28 flex-col items-center justify-center gap-2 px-2 py-2 text-sm text-gray-300 dark:text-gray-600">
+                                  <span>-</span>
+                                  {canEditAttendanceTime && (
+                                    <button
+                                      type="button"
+                                      aria-label="Add attendance entry"
+                                      title="Add attendance entry"
+                                      onClick={() => openCreateAttendanceModal(row.employee, column.key)}
+                                      className="inline-flex h-2 w-2 items-center justify-center rounded text-blue-600 hover:bg-blue-500/10 hover:text-blue-900 dark:text-blue-300 dark:hover:bg-blue-300/10"
+                                    >
+                                      <AddIcon className="w-1 h-1" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
+            )}
 
-            {reportRows.length === 0 && (
+            {reportTableView === 'table2' && (
+              <div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-max border-separate border-spacing-0 border border-gray-200 text-xs dark:border-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-800">
+                      <tr>
+                        <th
+                          rowSpan={2}
+                          className="sticky left-0 z-20 border border-gray-200 bg-gray-50 px-3 py-2 text-left font-semibold text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                          style={{ width: '10.5rem', minWidth: '10.5rem' }}
+                        >
+                          Employee Name
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="sticky z-20 border border-gray-200 bg-gray-50 px-3 py-2 text-left font-semibold text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                          style={{ left: '10.5rem', width: '8rem', minWidth: '8rem' }}
+                        >
+                          Role
+                        </th>
+                        {reportDateColumns.map((column) => {
+                          const date = new Date(column.key);
+                          return (
+                            <th
+                              key={column.key}
+                              className={`border border-gray-200 px-3 py-1 text-center font-semibold dark:border-gray-700 ${
+                                column.isWeekend ? 'bg-red-50 text-red-500 dark:bg-red-950/30 dark:text-red-300' : 'text-gray-900 dark:text-gray-100'
+                              }`}
+                              style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                            >
+                              {Number.isNaN(date.getTime()) ? '' : date.getDate()}
+                            </th>
+                          );
+                        })}
+                        <th
+                          rowSpan={2}
+                          className="border border-gray-200 bg-green-100 px-3 py-2 text-center font-semibold text-green-900 dark:border-gray-700 dark:bg-green-900/40 dark:text-green-100"
+                          style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                        >
+                          P
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="border border-gray-200 bg-red-100 px-3 py-2 text-center font-semibold text-red-900 dark:border-gray-700 dark:bg-red-900/40 dark:text-red-100"
+                          style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                        >
+                          A
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="border border-gray-200 bg-gray-100 px-3 py-2 text-center font-semibold text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                          style={{ width: '4.5rem', minWidth: '4.5rem' }}
+                        >
+                          Hours
+                        </th>
+                      </tr>
+                      <tr>
+                        {reportDateColumns.map((column) => (
+                          <th
+                            key={`${column.key}-day`}
+                            className={`border border-gray-200 px-3 py-1 text-center font-medium dark:border-gray-700 ${
+                              column.isWeekend ? 'bg-red-50 text-red-500 dark:bg-red-950/30 dark:text-red-300' : 'text-gray-600 dark:text-gray-300'
+                            }`}
+                            style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                          >
+                            {column.day}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-900">
+                      {reportRows.map((row) => {
+                        const rowTotals = getReportRowTotals(row);
+
+                        return (
+                          <tr key={`matrix-${row.employee?._id || row.employee?.name}`} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <td
+                              className="sticky left-0 z-10 border border-gray-200 bg-white px-3 py-2 font-semibold text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                              style={{ width: '10.5rem', minWidth: '10.5rem' }}
+                            >
+                              {row.employee?.name || 'Unknown'}
+                            </td>
+                            <td
+                              className="sticky z-10 border border-gray-200 bg-white px-3 py-2 text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                              style={{ left: '10.5rem', width: '8rem', minWidth: '8rem' }}
+                            >
+                              {row.employee?.position || row.employee?.role || row.employee?.department || 'N/A'}
+                            </td>
+                            {reportDateColumns.map((column) => {
+                              const cell = row.cells[column.key];
+                              return (
+                                <td
+                                  key={`matrix-${row.employee?._id || row.employee?.name}-${column.key}`}
+                                  className={`border border-gray-200 px-3 py-2 text-center font-bold dark:border-gray-700 ${getReportStatusCodeClassName(cell)}`}
+                                  style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                                  title={cell?.records?.length ? `${getReportStatusLabel(cell)} - ${getReportHoursLabel(cell)}` : 'No data'}
+                                >
+                                  {getReportStatusCode(cell)}
+                                </td>
+                              );
+                            })}
+                            <td
+                              className="border border-gray-200 bg-green-50 px-3 py-2 text-center font-bold text-green-900 dark:border-gray-700 dark:bg-green-900/20 dark:text-green-100"
+                              style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                              title={`${rowTotals.present} present`}
+                            >
+                              {rowTotals.present}
+                            </td>
+                            <td
+                              className="border border-gray-200 bg-red-50 px-3 py-2 text-center font-bold text-red-900 dark:border-gray-700 dark:bg-red-900/20 dark:text-red-100"
+                              style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                              title={`${rowTotals.absent} absent`}
+                            >
+                              {rowTotals.absent}
+                            </td>
+                            <td
+                              className="border border-gray-200 bg-gray-50 px-3 py-2 text-center font-bold text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                              style={{ width: '4.5rem', minWidth: '4.5rem' }}
+                              title={formatWorkingHours(rowTotals.minutes / 60, { emptyValue: '0h 0m' })}
+                            >
+                              {formatWorkingHours(rowTotals.minutes / 60, { emptyValue: '0h 0m' })}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="bg-gray-50 font-semibold dark:bg-gray-800">
+                        <td
+                          className="sticky left-0 z-10 border border-gray-200 bg-gray-50 px-3 py-2 text-right text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                          style={{ width: '10.5rem', minWidth: '10.5rem' }}
+                        >
+                          TOTAL:
+                        </td>
+                        <td
+                          className="sticky z-10 border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800"
+                          style={{ left: '10.5rem', width: '8rem', minWidth: '8rem' }}
+                        />
+                        {reportDateColumns.map((column) => {
+                          const totals = getReportColumnTotals(column.key);
+                          return (
+                            <td
+                              key={`total-${column.key}`}
+                              className="border border-gray-200 px-2 py-2 text-center text-gray-900 dark:border-gray-700 dark:text-gray-100"
+                              style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                              title={`${totals.present} present, ${totals.absent} absent, ${formatWorkingHours(totals.minutes / 60, { emptyValue: '0h 0m' })}`}
+                            >
+                              {totals.present}
+                            </td>
+                          );
+                        })}
+                        {(() => {
+                          const grandTotals = getReportGrandTotals();
+                          return (
+                            <>
+                              <td
+                                className="border border-gray-200 bg-green-100 px-2 py-2 text-center text-green-900 dark:border-gray-700 dark:bg-green-900/40 dark:text-green-100"
+                                style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                              >
+                                {grandTotals.present}
+                              </td>
+                              <td
+                                className="border border-gray-200 bg-red-100 px-2 py-2 text-center text-red-900 dark:border-gray-700 dark:bg-red-900/40 dark:text-red-100"
+                                style={{ width: '3.25rem', minWidth: '3.25rem' }}
+                              >
+                                {grandTotals.absent}
+                              </td>
+                              <td
+                                className="border border-gray-200 bg-gray-100 px-2 py-2 text-center text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                                style={{ width: '4.5rem', minWidth: '4.5rem' }}
+                              >
+                                {formatWorkingHours(grandTotals.minutes / 60, { emptyValue: '0h 0m' })}
+                              </td>
+                            </>
+                          );
+                        })()}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-4 space-y-2 text-xs text-gray-600 dark:text-gray-300">
+                  <div><span className="font-bold text-green-600 dark:text-green-300">P</span> = Present</div>
+                  <div><span className="font-bold text-red-600 dark:text-red-300">A</span> = Absent</div>
+                  <div><span className="font-bold text-gray-400">-</span> = Future Date / No Data</div>
+                  <div><span className="font-bold text-gray-900 dark:text-gray-100">TOTAL</span> = Present count per day and employee totals</div>
+                </div>
+              </div>
+            )}
+
+            {reportTableView === 'table3' && (
+              <div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-max border-separate border-spacing-0 border border-gray-200 text-xs dark:border-gray-700">
+                    <thead>
+                      <tr className="bg-yellow-300 text-gray-950 dark:bg-yellow-500">
+                        <th className="border border-gray-300 px-3 py-2 text-center font-bold dark:border-gray-700">S.No</th>
+                        <th className="border border-gray-300 px-3 py-2 text-left font-bold dark:border-gray-700">Vendor Name</th>
+                        <th className="border border-gray-300 px-3 py-2 text-left font-bold dark:border-gray-700">Name</th>
+                        <th className="border border-gray-300 px-3 py-2 text-left font-bold dark:border-gray-700">Shift Allotment</th>
+                        <th className="border border-gray-300 px-3 py-2 text-center font-bold dark:border-gray-700">From</th>
+                        <th className="border border-gray-300 px-3 py-2 text-center font-bold dark:border-gray-700">To</th>
+                        <th className="border border-gray-300 px-3 py-2 text-center font-bold dark:border-gray-700">Actual Org Working Days</th>
+                        <th className="border border-gray-300 bg-green-200 px-3 py-2 text-center font-bold text-green-950 dark:border-gray-700 dark:bg-green-700 dark:text-green-50">Present</th>
+                        <th className="border border-gray-300 bg-red-200 px-3 py-2 text-center font-bold text-red-950 dark:border-gray-700 dark:bg-red-700 dark:text-red-50">Absent</th>
+                        <th className="border border-gray-300 px-3 py-2 text-center font-bold dark:border-gray-700">Hours</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-900">
+                      {getShiftAttendanceRows().map((row) => (
+                        <tr key={`shift-summary-${row.serialNo}-${row.name}`} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td className="border border-gray-200 px-3 py-2 text-center text-gray-900 dark:border-gray-700 dark:text-gray-100">{row.serialNo}</td>
+                          <td className="border border-gray-200 px-3 py-2 text-gray-900 dark:border-gray-700 dark:text-gray-100">{row.vendorName}</td>
+                          <td className="border border-gray-200 px-3 py-2 font-semibold text-gray-900 dark:border-gray-700 dark:text-gray-100">{row.name}</td>
+                          <td className="border border-gray-200 bg-gray-100 px-3 py-2 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">{row.shiftAllotment}</td>
+                          <td className="border border-gray-200 px-3 py-2 text-center text-gray-900 dark:border-gray-700 dark:text-gray-100">{row.fromDate}</td>
+                          <td className="border border-gray-200 px-3 py-2 text-center text-gray-900 dark:border-gray-700 dark:text-gray-100">{row.toDate}</td>
+                          <td className="border border-gray-200 px-3 py-2 text-center font-semibold text-gray-900 dark:border-gray-700 dark:text-gray-100">{row.workingDays}</td>
+                          <td className="border border-gray-200 bg-green-50 px-3 py-2 text-center font-bold text-green-800 dark:border-gray-700 dark:bg-green-900/20 dark:text-green-100">{row.present}</td>
+                          <td className="border border-gray-200 bg-red-50 px-3 py-2 text-center font-bold text-red-800 dark:border-gray-700 dark:bg-red-900/20 dark:text-red-100">{row.absent}</td>
+                          <td className="border border-gray-200 px-3 py-2 text-center font-bold text-gray-900 dark:border-gray-700 dark:text-gray-100">{row.hours}</td>
+                        </tr>
+                      ))}
+                      {(() => {
+                        const rows = getShiftAttendanceRows();
+                        const present = rows.reduce((sum, row) => sum + row.present, 0);
+                        const absent = rows.reduce((sum, row) => sum + row.absent, 0);
+                        const grandTotals = getReportGrandTotals();
+
+                        return (
+                          <tr className="bg-gray-100 font-bold text-gray-900 dark:bg-gray-800 dark:text-gray-100">
+                            <td className="border border-gray-200 px-3 py-2 text-right dark:border-gray-700" colSpan={7}>TOTAL:</td>
+                            <td className="border border-gray-200 bg-green-100 px-3 py-2 text-center text-green-900 dark:border-gray-700 dark:bg-green-900/40 dark:text-green-100">{present}</td>
+                            <td className="border border-gray-200 bg-red-100 px-3 py-2 text-center text-red-900 dark:border-gray-700 dark:bg-red-900/40 dark:text-red-100">{absent}</td>
+                            <td className="border border-gray-200 px-3 py-2 text-center dark:border-gray-700">{formatWorkingHours(grandTotals.minutes / 60, { emptyValue: '0h 0m' })}</td>
+                          </tr>
+                        );
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-4 text-xs text-gray-600 dark:text-gray-300">
+                  Shift allotment uses the most frequent shift recorded for the employee in the selected report date range.
+                </div>
+              </div>
+            )}
+
+            {reportTableView === 'table4' && (
+              <div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-max border-separate border-spacing-0 border border-gray-300 text-xs dark:border-gray-700">
+                    <thead>
+                      <tr>
+                        <th
+                          rowSpan={2}
+                          className="sticky left-0 z-20 border border-gray-300 bg-orange-100 px-4 py-2 text-center font-bold text-gray-950 dark:border-gray-700 dark:bg-orange-900/40 dark:text-orange-50"
+                          style={{ width: '13rem', minWidth: '13rem' }}
+                        >
+                          Date
+                        </th>
+                        {getShiftMatrixGroups().map((group) => (
+                          <th
+                            key={`matrix-location-${group.locationName}`}
+                            colSpan={group.shifts.length}
+                            className="border border-gray-300 bg-orange-100 px-3 py-2 text-center font-bold text-gray-950 dark:border-gray-700 dark:bg-orange-900/40 dark:text-orange-50"
+                          >
+                            {group.locationName}
+                          </th>
+                        ))}
+                      </tr>
+                      <tr>
+                        {getShiftMatrixGroups().flatMap((group) => (
+                          group.shifts.map((shiftName) => (
+                            <th
+                              key={`matrix-shift-${group.locationName}-${shiftName}`}
+                              className="border border-gray-300 bg-white px-3 py-2 text-center font-semibold text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                              style={{ width: '4.5rem', minWidth: '4.5rem' }}
+                            >
+                              {shiftName}
+                            </th>
+                          ))
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-900">
+                      {reportDateColumns.map((column) => (
+                        <tr key={`location-shift-row-${column.key}`} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td
+                            className="sticky left-0 z-10 border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                            style={{ width: '13rem', minWidth: '13rem' }}
+                          >
+                            {formatReportDateLong(column.key)}
+                          </td>
+                          {getShiftMatrixGroups().flatMap((group) => (
+                            group.shifts.map((shiftName) => {
+                              const worked = hasWorkedLocationShift(column.key, group.locationName, shiftName);
+                              return (
+                                <td
+                                  key={`location-shift-cell-${column.key}-${group.locationName}-${shiftName}`}
+                                  className={`border border-gray-300 px-3 py-2 text-center text-lg font-bold dark:border-gray-700 ${
+                                    worked
+                                      ? 'text-green-600 dark:text-green-300'
+                                      : 'text-red-600 dark:text-red-300'
+                                  }`}
+                                  title={`${group.locationName} - ${shiftName}: ${worked ? 'Worked' : 'Not worked'}`}
+                                >
+                                  {worked ? '✓' : '✕'}
+                                </td>
+                              );
+                            })
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {getShiftMatrixGroups().length === 0 && (
+                  <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    No location and shift data available for the selected report date range.
+                  </div>
+                )}
+
+                <div className="mt-4 space-y-2 text-xs text-gray-600 dark:text-gray-300">
+                  <div><span className="font-bold text-green-600 dark:text-green-300">✓</span> = At least one employee completed that location and shift on the date</div>
+                  <div><span className="font-bold text-red-600 dark:text-red-300">✕</span> = No completed attendance found for that location and shift</div>
+                </div>
+              </div>
+            )}
+
+            {(reportRows.length === 0 || reportDateColumns.length === 0) && (
               <div className="text-center py-12">
                 <ScheduleIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500">No report data found</p>
@@ -2171,6 +3121,39 @@ const getTimeClassName = (highlight) => (
                 </tbody>
               </table>
             </div>
+
+            <div>
+              <h4 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Edit History</h4>
+              <div className="space-y-3">
+                {getAllEditAudits(editAuditModal.row?.records || []).map((audit, index) => {
+                  const isSelectedAudit = String(audit.editedAt || '') === String(editAuditModal.audit?.editedAt || '')
+                    && String(audit.record?._id || '') === String(editAuditModal.audit?.record?._id || '');
+
+                  return (
+                    <button
+                      key={`${audit.editedAt || index}-${audit.record?._id || index}`}
+                      type="button"
+                      onClick={() => setEditAuditModal((prev) => ({ ...prev, audit }))}
+                      className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                        isSelectedAudit
+                          ? 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/40'
+                          : 'border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          {audit.editedByName || audit.editedByEmail || 'Admin'}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">{formatAuditDateTime(audit.editedAt)}</span>
+                      </div>
+                      {audit.reason && (
+                        <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">{audit.reason}</div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
       </Modal>
@@ -2220,10 +3203,16 @@ const getTimeClassName = (highlight) => (
       <Modal
         isOpen={editModal.isOpen}
         onClose={closeEditModal}
-        title="Edit Attendance Time"
+        title={editModal.mode === 'create' ? 'Create Attendance Entry' : 'Edit Attendance Time'}
         size="md"
       >
         <form onSubmit={handleSaveAttendanceTime} className="space-y-4">
+          {editModal.mode === 'create' && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
+              Creating entry for {editModal.employee?.name || 'employee'} on {formatExcelDate(editModal.dateKey)}.
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Status</label>

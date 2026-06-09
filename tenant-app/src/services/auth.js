@@ -339,6 +339,15 @@ export const attendanceService = {
       throw error;
     }
   },
+  createAdminAttendanceEntry: async (data) => {
+    try {
+      const response = await api.post('/attendance/admin-create', data);
+      return response.data;
+    } catch (error) {
+      console.error('Create admin attendance entry error:', error);
+      throw error;
+    }
+  },
    getTodayPendingShifts: async () => {
     try {
       const response = await api.get('/attendance/today-shifts');

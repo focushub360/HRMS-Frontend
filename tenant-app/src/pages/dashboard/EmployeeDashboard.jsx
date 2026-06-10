@@ -627,7 +627,7 @@ const EmployeeDashboard = () => {
         workingHours: checkedInShift.workingHours,
         isNightShift: checkedInShift.isNightShift
       }
-    : data?.todaysAttendance?.checkIn && !hasCheckoutValue(data?.todaysAttendance?.checkOut)
+    : data?.todaysAttendance?.isActiveShift
     ? {
         name: data.todaysAttendance.shiftName || 'Shift',
         checkIn: data.todaysAttendance.checkIn,

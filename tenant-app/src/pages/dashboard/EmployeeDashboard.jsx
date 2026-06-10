@@ -729,7 +729,7 @@ const EmployeeDashboard = () => {
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     {attendanceCardShift.name}
                     {(attendanceCardShift.startTime || attendanceCardShift.endTime) && (
-                      <span> â€¢ {formatShiftTime(attendanceCardShift.startTime)} - {formatShiftTime(attendanceCardShift.endTime)}</span>
+                      <span> {formatShiftTime(attendanceCardShift.startTime)} - {formatShiftTime(attendanceCardShift.endTime)}</span>
                     )}
                   </p>
                 </div>
@@ -1075,7 +1075,7 @@ const EmployeeDashboard = () => {
                     {new Date(leave.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(leave.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </p>
                   <p className="text-sm text-gray-600 capitalize mt-1">
-                    {leave.leaveType} Leave â€¢ {leave.totalDays} {leave.totalDays === 1 ? 'day' : 'days'}
+                    {leave.leaveType} Leave {leave.totalDays} {leave.totalDays === 1 ? 'day' : 'days'}
                   </p>
                 </div>
                 <span className="px-3 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full border border-green-200">

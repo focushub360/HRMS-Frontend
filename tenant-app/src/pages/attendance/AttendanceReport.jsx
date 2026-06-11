@@ -24,6 +24,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 const AttendanceReport = () => {
   const { user } = useAuth();
@@ -68,6 +69,8 @@ const AttendanceReport = () => {
   const [reportEditForm, setReportEditForm] = useState({ checkIn: '', checkOut: '', status: 'present', dayType: 'full-day', shiftId: '', locationId: '', reason: '' });
   const [reportEditError, setReportEditError] = useState('');
   const [savingReportEdit, setSavingReportEdit] = useState(false);
+  const [deletingAttendanceId, setDeletingAttendanceId] = useState(null);
+  const [deleteAttendanceError, setDeleteAttendanceError] = useState({ id: null, message: '' });
   const [editAuditModal, setEditAuditModal] = useState({ isOpen: false, row: null, audit: null });
   const [rowStatusModal, setRowStatusModal] = useState({ isOpen: false, row: null });
   const [rowStatusForm, setRowStatusForm] = useState({ status: 'present', checkInTime: '09:00', checkOutTime: '18:00', shiftId: '', locationId: '' });
@@ -728,6 +731,24 @@ const AttendanceReport = () => {
     setReportEdit({ isEditing: false, record: null });
     setReportEditError('');
     setReportEditForm(resetEditForm);
+  };
+
+  const handleDeleteAttendance = async (record) => {
+    if (!record?._id || !canEditAttendanceTime) return;
+    if (!window.confirm('Delete this attendance record? This cannot be undone.')) return;
+
+    setDeleteAttendanceError({ id: null, message: '' });
+    setDeletingAttendanceId(record._id);
+    try {
+      await attendanceService.deleteAttendanceEntry(record._id);
+      if (String(reportEdit.record?._id) === String(record._id)) closeReportRowEdit();
+      await Promise.all([loadAttendance(), loadSummary()]);
+    } catch (error) {
+      const message = error?.response?.data?.message || error.message || 'Failed to delete attendance record.';
+      setDeleteAttendanceError({ id: record._id, message });
+    } finally {
+      setDeletingAttendanceId(null);
+    }
   };
 
   const handleSaveAttendanceTime = async (event) => {
@@ -2912,14 +2933,31 @@ const getTimeClassName = (highlight) => (
                                           )}
                                         </div>
                                       ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => openReportRowEdit(editableRecord)}
-                                          className="inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-900 dark:text-blue-300"
-                                        >
-                                          <EditIcon className="w-4 h-4" />
-                                          <span>Edit</span>
-                                        </button>
+                                        <div className="space-y-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => openReportRowEdit(editableRecord)}
+                                            disabled={deletingAttendanceId === editableRecord._id}
+                                            className="flex items-center gap-1 font-medium text-blue-600 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-60 dark:text-blue-300"
+                                          >
+                                            <EditIcon className="w-4 h-4" />
+                                            <span>Edit</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteAttendance(editableRecord)}
+                                            disabled={deletingAttendanceId === editableRecord._id}
+                                            className="flex items-center gap-1 font-medium text-red-600 hover:text-red-900 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-300"
+                                          >
+                                            <DeleteIcon className="w-4 h-4" />
+                                            <span>{deletingAttendanceId === editableRecord._id ? 'Deleting...' : 'Delete'}</span>
+                                          </button>
+                                          {String(deleteAttendanceError.id) === String(editableRecord._id) && (
+                                            <div className="whitespace-normal text-xs text-red-600 dark:text-red-300">
+                                              {deleteAttendanceError.message}
+                                            </div>
+                                          )}
+                                        </div>
                                       )}
                                     </div>
                                   )}

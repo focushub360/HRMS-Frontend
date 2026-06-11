@@ -1,3 +1,4 @@
+/* eslint-disable no-dupe-keys */
 import api from './api';
 
 export const authService = {
@@ -336,6 +337,15 @@ export const attendanceService = {
       return response.data;
     } catch (error) {
       console.error('Update attendance time error:', error);
+      throw error;
+    }
+  },
+  deleteAttendanceEntry: async (id) => {
+    try {
+      const response = await api.delete(`/attendance/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Delete attendance entry error:', error);
       throw error;
     }
   },

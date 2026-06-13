@@ -86,6 +86,14 @@ const Sidebar = ({ isOpen, onClose }) => {
     return location.pathname.startsWith(path);
   };
 
+  // Child items must match the current path exactly so that only one
+  // sub-item (e.g. "Add Company") is highlighted at a time, instead of
+  // every sibling whose path is a prefix of the current pathname
+  // (e.g. "All Companies" -> '/tenants' also matching '/tenants/add').
+  const isChildActive = (path) => {
+    return location.pathname === path;
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -145,14 +153,14 @@ const Sidebar = ({ isOpen, onClose }) => {
           {hasChildren && expandedItems[item.title] && (
             <div className="mt-1 ml-2 space-y-1 border-l border-gray-200 dark:border-gray-700">
               {item.children.map((child, childIndex) => {
-                const isChildActive = isActive(child.path);
+                const childActive = isChildActive(child.path);
                 
                 return (
                   <div
                     key={childIndex}
                     className={`
                       flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer
-                      ${isChildActive 
+                      ${childActive 
                         ? 'bg-blue-50 text-blue-600 border-l-2 border-blue-500 -ml-px dark:bg-blue-900 dark:text-blue-300 dark:border-blue-700' 
                         : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100'
                       }
@@ -164,7 +172,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                     }}
                   >
                     <div className={`w-1.5 h-1.5 rounded-full mr-3 ${
-                      isChildActive ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+                      childActive ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
                     }`} />
                     <span className="flex-1">{child.title}</span>
                   </div>

@@ -75,17 +75,23 @@ const LocationText = ({ coords, coordsText, mapsUrl }) => {
         if (!label && data && data.display_name) label = data.display_name;
         if (!cancelled && label) {
           setPlace(label);
-          try { sessionStorage.setItem(cacheKey, label); } catch (_) { // ignore storage errors
+          try {
+            sessionStorage.setItem(cacheKey, label);
+          } catch (err) {
+            // ignore storage errors
           }
         }
-      } catch (e){ //empty
+      } catch (e) {
+        // ignore fetch errors
       } finally {
         if (!cancelled) setLoadingPlace(false);
       }
     };
 
     fetchPlace();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [coords, hasCoords]);
 
   if (!hasCoords) {
@@ -97,17 +103,11 @@ const LocationText = ({ coords, coordsText, mapsUrl }) => {
   return (
     <span className="inline-flex items-center space-x-1 text-xs text-gray-500">
       <span>{label}</span>
-      {mapsUrl && (
-        <a
-          href={mapsUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="text-primary-600 hover:underline"
-          title={coordsText}
-        >
+      {mapsUrl ? (
+        <a href={mapsUrl} target="_blank" rel="noreferrer" className="text-primary-600 hover:underline" title={coordsText}>
           Open
         </a>
-      )}
+      ) : null}
     </span>
   );
 };
@@ -137,7 +137,6 @@ const Attendance = () => {
   const [isCheckingIn, setIsCheckingIn] = useState(null); // 'in' or 'out'
   const [selectedShiftId, setSelectedShiftId] = useState('');
 
-
   const supportsGeolocation = () => {
     if (typeof window === 'undefined') return false;
     if (!navigator || !navigator.geolocation) return false;
@@ -151,12 +150,11 @@ const Attendance = () => {
     if (navigator.permissions && navigator.permissions.query) {
       try {
         const status = await navigator.permissions.query({ name: 'geolocation' });
-        if (status?.state === 'denied') {
+        if (status && status.state === 'denied') {
           return null;
         }
       } catch (err) {
         // ignore permission query failures
-        void err;
       }
     }
 
@@ -185,28 +183,41 @@ const Attendance = () => {
     if (value.employeeId) return String(value.employeeId);
     return undefined;
   };
-  
+
   const renderLocation = (record, side) => {
     if (!record) return <span className="text-xs text-gray-400">Location unavailable</span>;
 
-    const place = side === 'in'
-      ? (record.checkInPlace || record.checkInLocation || record.checkInAddress || record.checkIn_location || record.checkIn?.place || record.checkIn?.placeName || record.checkIn?.locationName)
-      : (record.checkOutPlace || record.checkOutLocation || record.checkOutAddress || record.checkOut_location || record.checkOut?.place || record.checkOut?.placeName || record.checkOut?.locationName);
+    const place =
+      side === 'in'
+        ? record.checkInPlace ||
+          record.checkInLocation ||
+          record.checkInAddress ||
+          record.checkIn_location ||
+          (record.checkIn && record.checkIn.place) ||
+          (record.checkIn && record.checkIn.placeName) ||
+          (record.checkIn && record.checkIn.locationName)
+        : record.checkOutPlace ||
+          record.checkOutLocation ||
+          record.checkOutAddress ||
+          record.checkOut_location ||
+          (record.checkOut && record.checkOut.place) ||
+          (record.checkOut && record.checkOut.placeName) ||
+          (record.checkOut && record.checkOut.locationName);
 
     if (place) {
-      // place must be a string to avoid React rendering errors
       if (typeof place === 'string') {
         return <span className="text-xs text-gray-500">{place}</span>;
       }
       if (typeof place === 'object') {
-        const asName = place?.name ?? place?.title ?? null;
+        const asName = (place && place.name) || (place && place.title) || null;
         if (asName) {
           return <span className="text-xs text-gray-500">{asName}</span>;
         }
-        // Fallback: stringify only if it still won't render an object
         try {
           return <span className="text-xs text-gray-500">{String(place)}</span>;
-        } catch (_) { /* empty */ }
+        } catch (err) {
+          // ignore stringify errors
+        }
       }
       return <span className="text-xs text-gray-500">{String(place)}</span>;
     }
@@ -214,12 +225,12 @@ const Attendance = () => {
     if (side === 'out') {
       const hasOutData = Boolean(
         (record.checkOut && Object.keys(record.checkOut || {}).length > 0) ||
-        record.checkOutLat != null ||
-        record.checkOutLng != null ||
-        record.checkOutLocation ||
-        record.checkOutPlace ||
-        record.checkOutAddress ||
-        record.checkOut_location
+          record.checkOutLat != null ||
+          record.checkOutLng != null ||
+          record.checkOutLocation ||
+          record.checkOutPlace ||
+          record.checkOutAddress ||
+          record.checkOut_location
       );
       if (!hasOutData) {
         return <span className="text-xs text-gray-400">Awaiting check-out</span>;
@@ -229,8 +240,8 @@ const Attendance = () => {
     const extractCoords = (source, preference) => {
       if (!source) return null;
       if ((source.lat || source.latitude || source.latlng) && (source.lng || source.longitude || source.lon)) {
-        const lat = source.lat ?? source.latitude ?? (source.latlng && source.latlng[0]);
-        const lng = source.lng ?? source.longitude ?? source.lon ?? (source.latlng && source.latlng[1]);
+        const lat = source.lat != null ? source.lat : source.latitude != null ? source.latitude : source.latlng ? source.latlng[0] : null;
+        const lng = source.lng != null ? source.lng : source.longitude != null ? source.longitude : source.lon != null ? source.lon : source.latlng ? source.latlng[1] : null;
         if (lat != null && lng != null) return { lat: Number(lat), lng: Number(lng) };
       }
 
@@ -251,7 +262,7 @@ const Attendance = () => {
       if (source.location) {
         const loc = source.location;
         if (typeof loc === 'string') {
-          const parts = loc.split(',').map(p => p.trim());
+          const parts = loc.split(',').map((p) => p.trim());
           if (parts.length >= 2 && !Number.isNaN(Number(parts[0])) && !Number.isNaN(Number(parts[1]))) {
             return { lat: Number(parts[0]), lng: Number(parts[1]) };
           }
@@ -281,7 +292,7 @@ const Attendance = () => {
       return null;
     };
 
-    const primary = side === 'in' ? (record.checkIn ?? record) : (record.checkOut ?? record);
+    const primary = side === 'in' ? record.checkIn || record : record.checkOut || record;
     const coords = extractCoords(primary, side) || extractCoords(record, side) || extractCoords(record.employee, side) || null;
 
     if (coords && coords.lat != null && coords.lng != null) {
@@ -291,12 +302,14 @@ const Attendance = () => {
       return <LocationText coords={coords} coordsText={coordsText} mapsUrl={mapsUrl} />;
     }
 
-    const fallbackLat = side === 'in'
-      ? (record.checkInLat ?? record.checkIn?.lat ?? record.checkIn?.latitude)
-      : (record.checkOutLat ?? record.checkOut?.lat ?? record.checkOut?.latitude);
-    const fallbackLng = side === 'in'
-      ? (record.checkInLng ?? record.checkIn?.lng ?? record.checkIn?.longitude)
-      : (record.checkOutLng ?? record.checkOut?.lng ?? record.checkOut?.longitude);
+    const fallbackLat =
+      side === 'in'
+        ? record.checkInLat != null ? record.checkInLat : record.checkIn && (record.checkIn.lat != null ? record.checkIn.lat : record.checkIn.latitude)
+        : record.checkOutLat != null ? record.checkOutLat : record.checkOut && (record.checkOut.lat != null ? record.checkOut.lat : record.checkOut.latitude);
+    const fallbackLng =
+      side === 'in'
+        ? record.checkInLng != null ? record.checkInLng : record.checkIn && (record.checkIn.lng != null ? record.checkIn.lng : record.checkIn.longitude)
+        : record.checkOutLng != null ? record.checkOutLng : record.checkOut && (record.checkOut.lng != null ? record.checkOut.lng : record.checkOut.longitude);
 
     if (fallbackLat != null && fallbackLng != null) {
       const latNum = Number(fallbackLat);
@@ -309,11 +322,10 @@ const Attendance = () => {
       return <span className="text-xs text-gray-500">{`${fallbackLat}, ${fallbackLng}`}</span>;
     }
 
-    // Debug-only: avoid referencing Node's process in Vite/browser builds
-    if (import.meta?.env?.MODE === 'development') {
+    if (import.meta && import.meta.env && import.meta.env.MODE === 'development') {
       // eslint-disable-next-line no-console
       console.debug('Attendance page renderLocation: missing coordinates', {
-        id: record._id || getId(record.employee),
+        id: record._id || getId(record.employee)
       });
     }
 
@@ -337,12 +349,12 @@ const Attendance = () => {
       const data = await attendanceService.getMyAttendance(selectedMonth, selectedYear);
       setAttendance(data);
       calculateStats(data);
-      
+
       const today = new Date().toDateString();
-      const todayRecords = data.filter(a => new Date(a.date).toDateString() === today);
+      const todayRecords = data.filter((a) => new Date(a.date).toDateString() === today);
       if (todayRecords.length > 0) {
         const latest = todayRecords[todayRecords.length - 1];
-        if (latest?.shiftInfo) {
+        if (latest && latest.shiftInfo) {
           setTodayShiftInfo(latest.shiftInfo);
         }
       } else {
@@ -360,7 +372,7 @@ const Attendance = () => {
     setLoadingShifts(true);
     try {
       const data = await shiftService.getTodayShifts();
-      setTodayShifts(data.data?.todayShifts || []);
+      setTodayShifts((data.data && data.data.todayShifts) || []);
     } catch (error) {
       console.error('Failed to load today shifts:', error);
       setTodayShifts([]);
@@ -371,8 +383,6 @@ const Attendance = () => {
 
   const loadLocations = async () => {
     try {
-      // For employee role we may not be authorized to call tenant-admin locations.
-      // Try the tenant-admin endpoint first, but fall back to employee-safe /locations.
       try {
         const data = await locationService.adminGetAll();
         setLocations(Array.isArray(data) ? data : []);
@@ -397,13 +407,13 @@ const Attendance = () => {
   };
 
   const calculateStats = (attendanceData) => {
-    const presentDays = attendanceData.filter(a => 
-      a.status === 'present' || a.status === 'half-day' || a.status === 'present-with-permission'
+    const presentDays = attendanceData.filter(
+      (a) => a.status === 'present' || a.status === 'half-day' || a.status === 'present-with-permission'
     ).length;
     const totalWorkingHours = attendanceData.reduce((sum, record) => sum + (Number(record.workingHours) || 0), 0);
     const averageHours = presentDays > 0 ? (totalWorkingHours / presentDays).toFixed(1) : 0;
 
-    setStats(prev => ({
+    setStats((prev) => ({
       ...prev,
       presentDays,
       workingHours: totalWorkingHours.toFixed(1),
@@ -412,14 +422,13 @@ const Attendance = () => {
   };
 
   const updatePermissionStats = (permissionData) => {
-    setStats(prev => ({
+    setStats((prev) => ({
       ...prev,
       pendingPermissions: permissionData.length
     }));
   };
 
   const handleCheckIn = async () => {
-    // Always require selecting a tenant-assigned location before submitting check-in
     if (locations && locations.length > 0) {
       setIsCheckingIn('in');
       setSelectedLocation(null);
@@ -428,7 +437,6 @@ const Attendance = () => {
       return;
     }
 
-    // If no locations exist, proceed (should not happen when tenant has locations)
     await proceedWithCheckIn(null);
   };
 
@@ -457,10 +465,11 @@ const Attendance = () => {
       await loadAttendance();
     } catch (error) {
       console.error('Check-in failed:', error);
-      const errorMsg = error.response?.data?.message || 'Check-in failed';
-      
-      if (error.response?.data?.requiresShift) {
-        alert(`${errorMsg}\n\nShift: ${error.response.data.shift?.name || 'Not assigned'}\nTiming: ${error.response.data.shift?.startTime || '--'} - ${error.response.data.shift?.endTime || '--'}`);
+      const errorMsg = (error.response && error.response.data && error.response.data.message) || 'Check-in failed';
+
+      if (error.response && error.response.data && error.response.data.requiresShift) {
+        const shift = error.response.data.shift || {};
+        alert(`${errorMsg}\n\nShift: ${shift.name || 'Not assigned'}\nTiming: ${shift.startTime || '--'} - ${shift.endTime || '--'}`);
       } else {
         alert(errorMsg);
       }
@@ -470,7 +479,6 @@ const Attendance = () => {
   };
 
   const handleCheckOut = async () => {
-    // If locations exist, show location selection modal
     if (locations && locations.length > 0) {
       setIsCheckingIn('out');
       setSelectedLocation(null);
@@ -479,7 +487,6 @@ const Attendance = () => {
       return;
     }
 
-    // Otherwise proceed with regular check-out
     await proceedWithCheckOut(null);
   };
 
@@ -505,10 +512,11 @@ const Attendance = () => {
       await loadAttendance();
     } catch (error) {
       console.error('Check-out failed:', error);
-      const errorMsg = error.response?.data?.message || 'Check-out failed';
-      
-      if (error.response?.data?.requiresShift) {
-        alert(`${errorMsg}\n\nShift: ${error.response.data.shift?.name || 'Not assigned'}`);
+      const errorMsg = (error.response && error.response.data && error.response.data.message) || 'Check-out failed';
+
+      if (error.response && error.response.data && error.response.data.requiresShift) {
+        const shift = error.response.data.shift || {};
+        alert(`${errorMsg}\n\nShift: ${shift.name || 'Not assigned'}`);
       } else {
         alert(errorMsg);
       }
@@ -518,29 +526,28 @@ const Attendance = () => {
   };
 
   const handlePermissionSuccess = () => {
-    loadPermissions(); // Refresh permissions list
+    loadPermissions();
   };
 
   const getTodayAttendance = () => {
     const today = new Date().toDateString();
-    return attendance.find(a => new Date(a.date).toDateString() === today);
+    return attendance.find((a) => new Date(a.date).toDateString() === today);
   };
 
-  // Reload shifts after check-out to detect next shift
   const reloadShiftsAfterCheckout = async () => {
     await loadTodayShifts();
-    await loadAttendance(); // Reload to see shift-specific attendance
+    await loadAttendance();
   };
 
   const getStatusBadge = (record) => {
     if (!record.checkIn) {
       return <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full">Absent</span>;
     }
-    
+
     if (!record.checkOut) {
       return <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full">Working</span>;
     }
-    
+
     switch (record.status) {
       case 'present':
         return <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">Present</span>;
@@ -573,7 +580,6 @@ const Attendance = () => {
     });
   };
 
-  // Location Selection Modal Component (dropdown)
   const LocationSelectionModal = () => {
     if (!showLocationModal) return null;
 
@@ -583,7 +589,6 @@ const Attendance = () => {
         return;
       }
 
-      // Require shift selection before final submit
       if (!selectedShiftId) {
         alert('Please select a shift');
         return;
@@ -613,29 +618,29 @@ const Attendance = () => {
           </h2>
           <p className="text-sm text-gray-600 mb-4">Select the location for your attendance:</p>
 
-           <div className="space-y-2 mb-3">
-             <label className="block text-sm font-medium text-gray-700">Location</label>
-             <select
-               value={selectedLocation?._id || ''}
-               onChange={(ev) => {
-                 const loc = locations.find((l) => String(l._id) === ev.target.value);
-                 setSelectedLocation(loc || null);
-                 setSelectedShiftId('');
-                 setTimeout(() => {
-                   const el = document.getElementById('attendance-shift-select');
-                   if (el) el.focus?.();
-                 }, 0);
-               }}
-               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
-             >
-               <option value="">-- Select Location --</option>
-               {(locations || []).map((location) => (
-                 <option key={location._id} value={location._id}>
-                   {location.name}
-                 </option>
-               ))}
-             </select>
-           </div>
+          <div className="space-y-2 mb-3">
+            <label className="block text-sm font-medium text-gray-700">Location</label>
+            <select
+              value={(selectedLocation && selectedLocation._id) || ''}
+              onChange={(ev) => {
+                const loc = locations.find((l) => String(l._id) === ev.target.value);
+                setSelectedLocation(loc || null);
+                setSelectedShiftId('');
+                setTimeout(() => {
+                  const el = document.getElementById('attendance-shift-select');
+                  if (el && el.focus) el.focus();
+                }, 0);
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <option value="">-- Select Location --</option>
+              {(locations || []).map((location) => (
+                <option key={location._id} value={location._id}>
+                  {location.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="space-y-2 mb-6">
             <label className="block text-sm font-medium text-gray-700">Shift</label>
@@ -654,29 +659,17 @@ const Attendance = () => {
                 ))}
               </select>
             ) : (
-              <select
-                value=""
-                disabled
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-400"
-              >
+              <select value="" disabled className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-400">
                 <option value="">Select location first</option>
               </select>
             )}
           </div>
 
           <div className="flex gap-3">
-            <button
-              onClick={handleCancel}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-            >
+            <button onClick={handleCancel} className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
               Cancel
             </button>
-            <Button
-              onClick={handleConfirm}
-              disabled={!selectedLocation || checking}
-              variant="primary"
-              className="flex-1"
-            >
+            <Button onClick={handleConfirm} disabled={!selectedLocation || checking} variant="primary" className="flex-1">
               {checking ? 'Processing...' : 'Confirm'}
             </Button>
           </div>
@@ -688,14 +681,15 @@ const Attendance = () => {
   const todayAttendance = getTodayAttendance();
   const hasPendingShift = todayShifts.length > 0;
   const canCheckIn = hasPendingShift && (!todayAttendance || !todayAttendance.checkIn);
-  const canCheckOut = todayAttendance?.checkIn && !todayAttendance?.checkOut;
+  const canCheckOut = todayAttendance && todayAttendance.checkIn && !todayAttendance.checkOut;
 
-  const ShiftSelect = ({ disabled, label = 'Shift', value, onChange }) => {
+  const ShiftSelect = ({ disabled, label, value, onChange }) => {
+    const shiftLabel = label || 'Shift';
     const shifts = Array.isArray(todayShifts) ? todayShifts : [];
 
     return (
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <label className="block text-sm font-medium text-gray-700">{shiftLabel}</label>
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -709,9 +703,7 @@ const Attendance = () => {
             </option>
           ))}
         </select>
-        {!shifts.length && (
-          <div className="text-xs text-gray-500">No shifts available for today</div>
-        )}
+        {!shifts.length && <div className="text-xs text-gray-500">No shifts available for today</div>}
       </div>
     );
   };
@@ -726,128 +718,85 @@ const Attendance = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">My Attendance</h1>
           <p className="text-gray-600">Track your daily attendance and working hours</p>
         </div>
-        
-        <div className="flex items-center space-x-3">
-          {/* Permission Request Button */}
-          <Button
-            variant="outline"
-            onClick={() => setPermissionModal(true)}
-            className="flex items-center space-x-2"
-          >
+
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
+          <Button variant="outline" onClick={() => setPermissionModal(true)} className="flex items-center justify-center space-x-2 w-full sm:w-auto">
             <RequestQuoteIcon className="w-4 h-4" />
             <span>Request Permission</span>
           </Button>
-          <Button
-  variant="outline"
-  onClick={() => navigate('/attendance/my-permissions')}
-  className="flex items-center space-x-2"
->
-  <HistoryIcon className="w-4 h-4" />
-  <span>View History</span>
-</Button>
-          
-          {/* Check In/Out Button */}
+          <Button variant="outline" onClick={() => navigate('/attendance/my-permissions')} className="flex items-center justify-center space-x-2 w-full sm:w-auto">
+            <HistoryIcon className="w-4 h-4" />
+            <span>View History</span>
+          </Button>
+
           {canCheckOut ? (
-            <Button
-              variant="outline"
-              onClick={handleCheckOut}
-              loading={checking}
-              size="lg"
-              className="min-w-32"
-            >
+            <Button variant="outline" onClick={handleCheckOut} loading={checking} size="lg" className="w-full sm:w-auto sm:min-w-32 flex items-center justify-center">
               <AccessTimeIcon className="w-5 h-5 mr-2" />
               Check Out
             </Button>
           ) : canCheckIn ? (
-            <Button
-              onClick={handleCheckIn}
-              loading={checking}
-              size="lg"
-              className="min-w-32"
-            >
+            <Button onClick={handleCheckIn} loading={checking} size="lg" className="w-full sm:w-auto sm:min-w-32 flex items-center justify-center">
               <AccessTimeIcon className="w-5 h-5 mr-2" />
-              {todayShifts[0]?.displayName ? `Check In ${todayShifts[0].displayName}` : 'Check In Next Shift'}
+              {todayShifts[0] && todayShifts[0].displayName ? `Check In ${todayShifts[0].displayName}` : 'Check In Next Shift'}
             </Button>
           ) : (
-            <div className="text-center">
+            <div className="text-center sm:text-right">
               <span className="text-green-600 font-semibold block">
                 {hasPendingShift ? 'All shifts completed' : 'Completed for today'}
               </span>
               <span className="text-sm text-gray-500">
-                {todayAttendance?.workingHours ? `${formatWorkingHours(todayAttendance.workingHours)} worked` : ''}
+                {todayAttendance && todayAttendance.workingHours ? `${formatWorkingHours(todayAttendance.workingHours)} worked` : ''}
               </span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Today's Status & Monthly Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Today's Status */}
         <Card className="lg:col-span-2">
           <Card.Header>
             <Card.Title>Today's Status - {new Date().toLocaleDateString()}</Card.Title>
           </Card.Header>
           <Card.Content>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <div className={`text-2xl font-bold mb-1 ${
-                  todayAttendance ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {todayAttendance ? (
-                    <CheckCircleIcon className="w-8 h-8" />
-                  ) : (
-                    <CancelIcon className="w-8 h-8" />
-                  )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              <div className="text-center p-3 sm:p-4 bg-gray-50 rounded-lg">
+                <div className={`text-2xl font-bold mb-1 ${todayAttendance ? 'text-green-600' : 'text-red-600'}`}>
+                  {todayAttendance ? <CheckCircleIcon className="w-8 h-8 mx-auto" /> : <CancelIcon className="w-8 h-8 mx-auto" />}
                 </div>
                 <p className="text-sm font-medium text-gray-600">Status</p>
                 <p className="text-lg font-semibold text-gray-900">
-                  {todayAttendance ? 
-                    (todayAttendance.checkOut ? 'Completed' : 'Checked In') : 
-                    'Not Checked In'
-                  }
+                  {todayAttendance ? (todayAttendance.checkOut ? 'Completed' : 'Checked In') : 'Not Checked In'}
                 </p>
               </div>
-              
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <div className="text-2xl font-bold text-gray-900 mb-1">
-                  {formatTime(todayAttendance?.checkIn)}
-                </div>
+
+              <div className="text-center p-3 sm:p-4 bg-gray-50 rounded-lg">
+                <div className="text-2xl font-bold text-gray-900 mb-1">{formatTime(todayAttendance && todayAttendance.checkIn)}</div>
                 <p className="text-sm font-medium text-gray-600">Check In</p>
-                <div className="mt-2">
-                  {renderLocation(todayAttendance, 'in')}
-                </div>
+                <div className="mt-2 break-words">{renderLocation(todayAttendance, 'in')}</div>
               </div>
-              
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <div className="text-2xl font-bold text-gray-900 mb-1">
-                  {formatTime(todayAttendance?.checkOut)}
-                </div>
+
+              <div className="text-center p-3 sm:p-4 bg-gray-50 rounded-lg">
+                <div className="text-2xl font-bold text-gray-900 mb-1">{formatTime(todayAttendance && todayAttendance.checkOut)}</div>
                 <p className="text-sm font-medium text-gray-600">Check Out</p>
-                <div className="mt-2">
-                  {renderLocation(todayAttendance, 'out')}
-                </div>
+                <div className="mt-2 break-words">{renderLocation(todayAttendance, 'out')}</div>
               </div>
             </div>
-            
-            {todayAttendance?.workingHours > 0 && (
+
+            {todayAttendance && todayAttendance.workingHours > 0 && (
               <div className="mt-4 p-3 bg-blue-50 rounded-lg">
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-blue-700">Total Working Hours:</span>
-                  <span className="text-lg font-bold text-blue-900">
-                    {formatWorkingHours(todayAttendance.workingHours)}
-                  </span>
+                  <span className="text-lg font-bold text-blue-900">{formatWorkingHours(todayAttendance.workingHours)}</span>
                 </div>
               </div>
             )}
 
-            {(todayShiftInfo || todayAttendance?.shiftName) && (
+            {(todayShiftInfo || (todayAttendance && todayAttendance.shiftName)) && (
               <div className="mt-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
@@ -856,27 +805,33 @@ const Attendance = () => {
                   </div>
                   <div className="text-right">
                     <span className="text-lg font-bold text-purple-900">
-                      {todayShiftInfo?.name || todayAttendance?.shiftName}
+                      {(todayShiftInfo && todayShiftInfo.name) || (todayAttendance && todayAttendance.shiftName)}
                     </span>
-                    {todayShiftInfo?.startTime && todayShiftInfo?.endTime && (
+                    {todayShiftInfo && todayShiftInfo.startTime && todayShiftInfo.endTime && (
                       <span className="text-sm text-purple-600 ml-2">
                         ({todayShiftInfo.startTime} - {todayShiftInfo.endTime})
                       </span>
                     )}
                   </div>
                 </div>
-                {todayAttendance?.checkInStatus && (
+                {todayAttendance && todayAttendance.checkInStatus && (
                   <div className="mt-2 flex items-center">
-                    <span className={`px-2 py-1 text-xs rounded-full ${
-                      todayAttendance.checkInStatus === 'late' 
-                        ? 'bg-yellow-100 text-yellow-800' 
+                    <span
+                      className={`px-2 py-1 text-xs rounded-full ${
+                        todayAttendance.checkInStatus === 'late'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : todayAttendance.checkInStatus === 'on-time'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      {todayAttendance.checkInStatus === 'late'
+                        ? 'Late Check-in'
                         : todayAttendance.checkInStatus === 'on-time'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {todayAttendance.checkInStatus === 'late' ? 'Late Check-in' : 
-                       todayAttendance.checkInStatus === 'on-time' ? 'On Time' :
-                       todayAttendance.isLateCheckIn ? 'Late' : 'Normal'}
+                        ? 'On Time'
+                        : todayAttendance.isLateCheckIn
+                        ? 'Late'
+                        : 'Normal'}
                     </span>
                   </div>
                 )}
@@ -885,7 +840,6 @@ const Attendance = () => {
           </Card.Content>
         </Card>
 
-        {/* Monthly Stats */}
         <Card className="lg:col-span-2">
           <Card.Header>
             <Card.Title>
@@ -895,33 +849,25 @@ const Attendance = () => {
           <Card.Content>
             <div className="grid grid-cols-2 gap-4">
               <div className="text-center p-4 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600 mb-1">
-                  {stats.presentDays}
-                </div>
+                <div className="text-2xl font-bold text-green-600 mb-1">{stats.presentDays}</div>
                 <p className="text-sm font-medium text-green-700">Present Days</p>
                 <EventAvailableIcon className="w-5 h-5 text-green-600 mx-auto mt-1" />
               </div>
-              
+
               <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600 mb-1">
-                  {formatWorkingHours(stats.workingHours, { emptyValue: '0h 0m' })}
-                </div>
+                <div className="text-2xl font-bold text-blue-600 mb-1">{formatWorkingHours(stats.workingHours, { emptyValue: '0h 0m' })}</div>
                 <p className="text-sm font-medium text-blue-700">Total Hours</p>
                 <ScheduleIcon className="w-5 h-5 text-blue-600 mx-auto mt-1" />
               </div>
-              
+
               <div className="text-center p-4 bg-purple-50 rounded-lg">
-                <div className="text-2xl font-bold text-purple-600 mb-1">
-                  {formatWorkingHours(stats.averageHours, { emptyValue: '0h 0m' })}
-                </div>
+                <div className="text-2xl font-bold text-purple-600 mb-1">{formatWorkingHours(stats.averageHours, { emptyValue: '0h 0m' })}</div>
                 <p className="text-sm font-medium text-purple-700">Avg Hours/Day</p>
                 <TrendingUpIcon className="w-5 h-5 text-purple-600 mx-auto mt-1" />
               </div>
 
               <div className="text-center p-4 bg-orange-50 rounded-lg">
-                <div className="text-2xl font-bold text-orange-600 mb-1">
-                  {stats.pendingPermissions}
-                </div>
+                <div className="text-2xl font-bold text-orange-600 mb-1">{stats.pendingPermissions}</div>
                 <p className="text-sm font-medium text-orange-700">Pending Requests</p>
                 <PendingActionsIcon className="w-5 h-5 text-orange-600 mx-auto mt-1" />
               </div>
@@ -930,7 +876,6 @@ const Attendance = () => {
         </Card>
       </div>
 
-      {/* Pending Permissions */}
       {permissions.length > 0 && (
         <Card>
           <Card.Header>
@@ -942,28 +887,24 @@ const Attendance = () => {
           <Card.Content>
             <div className="space-y-3">
               {permissions.map((permission) => (
-                <div key={permission._id} className="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-200">
+                <div key={permission._id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 bg-orange-50 rounded-lg border border-orange-200">
                   <div>
                     <div className="flex items-center space-x-2 mb-1">
                       <span className="text-sm font-medium text-orange-800 capitalize">
-                        {permission.permissionType?.replace('-', ' ')}
+                        {permission.permissionType && permission.permissionType.replace('-', ' ')}
                       </span>
-                      <span className="px-2 py-1 text-xs bg-orange-100 text-orange-800 rounded-full">
-                        Pending
-                      </span>
+                      <span className="px-2 py-1 text-xs bg-orange-100 text-orange-800 rounded-full">Pending</span>
                     </div>
                     <p className="text-sm text-orange-700">{permission.reason}</p>
                     <div className="flex items-center space-x-4 text-xs text-orange-600 mt-1">
                       <span>
-                        {new Date(permission.date).toLocaleDateString()} • {formatTime(permission.startTime)} - {formatTime(permission.endTime)}
+                        {new Date(permission.date).toLocaleDateString()} - {formatTime(permission.startTime)} to {formatTime(permission.endTime)}
                       </span>
-                      <span>•</span>
+                      <span>-</span>
                       <span>{permission.duration}h</span>
                     </div>
                   </div>
-                  <div className="text-sm text-orange-600">
-                    Applied {new Date(permission.createdAt).toLocaleDateString()}
-                  </div>
+                  <div className="text-sm text-orange-600 sm:text-right">Applied {new Date(permission.createdAt).toLocaleDateString()}</div>
                 </div>
               ))}
             </div>
@@ -971,19 +912,18 @@ const Attendance = () => {
         </Card>
       )}
 
-      {/* Attendance History */}
       <Card>
         <Card.Header>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <Card.Title className="flex items-center">
               <HistoryIcon className="w-5 h-5 mr-2 text-gray-600" />
               Attendance History
             </Card.Title>
-            <div className="flex space-x-2">
+            <div className="flex flex-wrap gap-2">
               <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
+                className="flex-1 sm:flex-none px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
               >
                 {Array.from({ length: 12 }, (_, i) => (
                   <option key={i + 1} value={i + 1} className="dark:bg-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -994,69 +934,51 @@ const Attendance = () => {
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
+                className="flex-1 sm:flex-none px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
               >
                 {Array.from({ length: 5 }, (_, i) => {
                   const year = new Date().getFullYear() - 2 + i;
-                  return <option key={year} value={year} className="dark:bg-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700">{year}</option>;
+                  return (
+                    <option key={year} value={year} className="dark:bg-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700">
+                      {year}
+                    </option>
+                  );
                 })}
               </select>
             </div>
           </div>
         </Card.Header>
         <Card.Content>
-          <div className="overflow-hidden border border-gray-200 rounded-lg">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-x-auto -mx-px scrollbar-hide">
+            <table className="w-full min-w-[760px] divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-800">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Day
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Check In
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Check Out
-                  </th>
-<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                     Working Hours
-                   </th>
-                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                     Shift
-                   </th>
-                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                     Status
-                   </th>
-                 </tr>
-               </thead>
-               <tbody className="bg-white divide-y divide-gray-200">
-                 {attendance.map((record) => (
-                   <tr key={record._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                       {formatDate(record.date)}
-                     </td>
-                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                       {new Date(record.date).toLocaleDateString('en-US', { weekday: 'short' })}
-                     </td>
-                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                       {formatTime(record.checkIn)}
-                       <div className="mt-1">
-                        {renderLocation(record, 'in')}
-                      </div>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Day</th>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Check In</th>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Check Out</th>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Working Hours</th>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Shift</th>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                {attendance.map((record) => (
+                  <tr key={record._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{formatDate(record.date)}</td>
+                    <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                      {new Date(record.date).toLocaleDateString('en-US', { weekday: 'short' })}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      {formatTime(record.checkIn)}
+                      <div className="mt-1">{renderLocation(record, 'in')}</div>
+                    </td>
+                    <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                       {formatTime(record.checkOut)}
-                      <div className="mt-1">
-                        {renderLocation(record, 'out')}
-                      </div>
+                      <div className="mt-1">{renderLocation(record, 'out')}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatWorkingHours(record.workingHours)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{formatWorkingHours(record.workingHours)}</td>
+                    <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm">
                       {record.shiftName ? (
                         <span className="inline-flex items-center px-2 py-1 rounded-full bg-purple-100 text-purple-800 text-xs">
                           <ScheduleIcon className="w-3 h-3 mr-1" />
@@ -1066,9 +988,7 @@ const Attendance = () => {
                         <span className="text-gray-400">--</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(record)}
-                    </td>
+                    <td className="px-3 sm:px-6 py-4 whitespace-nowrap">{getStatusBadge(record)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1080,23 +1000,15 @@ const Attendance = () => {
                   <CalendarMonthIcon className="w-16 h-16 mx-auto" />
                 </div>
                 <p className="text-gray-500">No attendance records found for selected period</p>
-                <p className="text-sm text-gray-400 mt-2">
-                  Select a different month or year to view attendance history
-                </p>
+                <p className="text-sm text-gray-400 mt-2">Select a different month or year to view attendance history</p>
               </div>
             )}
           </div>
         </Card.Content>
       </Card>
 
-      {/* Permission Modal */}
-      <PermissionModal
-        isOpen={permissionModal}
-        onClose={() => setPermissionModal(false)}
-        onSuccess={handlePermissionSuccess}
-      />
+      <PermissionModal isOpen={permissionModal} onClose={() => setPermissionModal(false)} onSuccess={handlePermissionSuccess} />
 
-      {/* Location Selection Modal */}
       <LocationSelectionModal />
     </div>
   );

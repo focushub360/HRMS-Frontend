@@ -473,7 +473,6 @@ const KanbanColumn = ({ title, status, tasks, onTaskDrop, isAdmin, onEdit, onDel
     </div>
   );
 };
-
 const TaskBoard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -626,7 +625,7 @@ const TaskBoard = () => {
             </div>
 
             {/* Quick Stats */}
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-white rounded-lg p-3 shadow-sm text-center dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100">
                 <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">Total</div>
@@ -695,9 +694,10 @@ const TaskBoard = () => {
           </Card>
         </div>
 
+     
         {/* Kanban Board */}
-        <div className="overflow-x-auto pb-4">
-          <div className="flex space-x-4 min-w-max">
+        <div className="mt-3 sm:mt-0 sm:overflow-x-auto pb-4">
+          <div className="flex flex-col sm:flex-row gap-4 sm:min-w-max">
             {columns.map(column => (
               <KanbanColumn
                 key={column.status}

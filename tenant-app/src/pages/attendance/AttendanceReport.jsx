@@ -2805,15 +2805,15 @@ const getTimeClassName = (highlight) => (
                             >
                               {cell?.records?.length > 0 ? (
                                 <div className="relative min-h-28 space-y-1 px-2 py-2 text-xs text-gray-700 dark:text-gray-200">
-                                  {latestAudit && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditAuditModal({ isOpen: true, row: cell, audit: latestAudit })}
-                                      className="absolute right-1.5 top-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-800 hover:bg-amber-200 dark:bg-amber-900/60 dark:text-amber-100"
-                                    >
-                                      Edited
-                                    </button>
-                                  )}
+                                 {canEditAttendanceTime && latestAudit && (
+  <button
+    type="button"
+    onClick={() => setEditAuditModal({ isOpen: true, row: cell, audit: latestAudit })}
+    className="absolute right-1.5 top-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-800 hover:bg-amber-200 dark:bg-amber-900/60 dark:text-amber-100"
+  >
+    Edited
+  </button>
+)}
 
                                   <div className="pr-12">
                                     {isEditingCell ? (

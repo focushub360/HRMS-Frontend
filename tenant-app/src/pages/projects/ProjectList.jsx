@@ -49,7 +49,7 @@ const ProjectCard = ({ project, viewMode = 'grid' }) => {
     return (
       <Card className="hover:shadow-lg transition-all duration-300">
         <Card.Content className="p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center space-x-4 flex-1">
               <div className="p-2 bg-primary-50 rounded-lg">
                 <FolderIcon className="w-5 h-5 text-primary-600" />
@@ -63,7 +63,7 @@ const ProjectCard = ({ project, viewMode = 'grid' }) => {
               </div>
             </div>
             
-            <div className="flex items-center space-x-6">
+            <div className="flex flex-wrap items-center gap-4 sm:gap-6 pl-12 sm:pl-0">
               <div className="text-center">
                 <div className="text-sm text-gray-600">Progress</div>
                 <div className="font-semibold text-gray-900">{project.progress}%</div>
@@ -298,7 +298,7 @@ const ProjectsListPage = () => {
               </div>
 
               {/* View Controls */}
-              <div className="flex items-center space-x-4">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                 {/* Status Filters */}
                 <div className="flex items-center space-x-2">
                   <FilterListIcon className="w-4 h-4 text-gray-400" />

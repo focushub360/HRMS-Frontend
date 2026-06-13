@@ -182,7 +182,7 @@ const Sidebar = ({ isOpen, onClose }) => {
             className={`
               group flex items-center justify-between px-3 py-3 text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer
               ${isItemActive 
-                ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-600 shadow-sm dark:bg-primary-900 dark:text-primary-300 dark:border-primary-700' 
+                ? 'bg-primary-200 text-primary-800 border-r-2 border-primary-600 shadow-sm dark:bg-primary-700/70 dark:text-primary-100 dark:border-primary-500' 
                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white'
               }
               ${level > 0 ? 'pl-8' : ''}
@@ -199,7 +199,7 @@ const Sidebar = ({ isOpen, onClose }) => {
             <div className="flex items-center flex-1 relative">
               <div className={`p-1.5 rounded-lg transition-colors duration-200 ${
                 isItemActive 
-                  ? 'bg-primary-100 text-primary-600 dark:bg-primary-800 dark:text-primary-300' 
+                  ? 'bg-primary-300 text-primary-800 dark:bg-primary-600 dark:text-primary-50' 
                   : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200 group-hover:text-gray-700 dark:bg-transparent dark:text-gray-300 dark:group-hover:bg-gray-700 dark:group-hover:text-white'
               }`}>
                 {getMenuItemIcon(item.icon, isItemActive)}
@@ -252,7 +252,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           {item.children.length > 0 && expandedItems[item.title] && (
             <div className="mt-1 ml-2 space-y-1 border-l border-gray-200 dark:border-gray-700">
               {item.children.map((child, childIndex) => {
-                const isChildActive = isActive(child.path);
+                const isChildActive = location.pathname === child.path;
                 
                 return (
                   <div

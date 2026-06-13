@@ -1,9 +1,69 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { leaveService } from '../../services/auth';
 import { LEAVE_TYPES } from '../../utils/constants';
+
+// Material-UI Icons
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+
+// ============================================================
+// Custom Select Dropdown (Fixes native dropdown overflow on mobile)
+// ============================================================
+const CustomSelect = ({ value, onChange, options, required = false }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find(opt => opt.value === value);
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+      >
+        <span className="truncate">{selectedOption ? selectedOption.label : 'Select...'}</span>
+        <ArrowDropDownIcon
+          className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ml-2 ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {isOpen && (
+        // w-full ensures it perfectly matches the button width, max-h-60 prevents it from overflowing the screen vertically
+        <div className="absolute z-50 mt-1 w-full p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg left-0 max-h-60 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+          {options.map((opt) => (
+            <div
+              key={opt.value}
+              onClick={() => {
+                onChange(opt.value);
+                setIsOpen(false);
+              }}
+              className={`px-3 py-2 text-sm cursor-pointer rounded-md transition-colors ${
+                opt.value === value
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900 dark:text-primary-100 font-medium'
+                  : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const LeaveList = () => {
   const [leaves, setLeaves] = useState([]);
@@ -46,6 +106,14 @@ const LeaveList = () => {
     return leave.status === filter;
   });
 
+  // Options for the filter dropdown
+  const filterOptions = [
+    { value: 'all', label: 'All Leaves' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'approved', label: 'Approved' },
+    { value: 'rejected', label: 'Rejected' }
+  ];
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -57,25 +125,22 @@ const LeaveList = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">My Leaves</h1>
           <p className="text-gray-600 dark:text-gray-300">Track your leave applications and status</p>
         </div>
         
-        <div className="flex space-x-3">
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700"
-          >
-            <option value="all">All Leaves</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="w-full sm:w-48">
+            <CustomSelect
+              value={filter}
+              onChange={(val) => setFilter(val)}
+              options={filterOptions}
+            />
+          </div>
           
-          <Button as="a" href="/leaves/apply">
+          <Button as="a" href="/leaves/apply" className="text-center">
             Apply for Leave
           </Button>
         </div>
@@ -89,8 +154,8 @@ const LeaveList = () => {
         <Card.Content>
           <div className="space-y-4">
             {filteredLeaves.map((leave) => (
-              <div key={leave._id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg bg-white dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
-                <div className="flex-1">
+              <div key={leave._id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border border-gray-200 rounded-lg bg-white dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center space-x-3 mb-2">
                     <span className={`px-2 py-1 text-xs rounded-full ${LEAVE_TYPES[leave.leaveType]?.color}`}>
                       {LEAVE_TYPES[leave.leaveType]?.label}
@@ -100,20 +165,20 @@ const LeaveList = () => {
                   
                   <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">{leave.reason}</p>
                   
-                  <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
                     <span>
                       {new Date(leave.startDate).toLocaleDateString()} - {new Date(leave.endDate).toLocaleDateString()}
                     </span>
-                    <span>•</span>
+                    <span className="hidden sm:inline">•</span>
                     <span>{leave.totalDays} days</span>
-                    <span>•</span>
+                    <span className="hidden sm:inline">•</span>
                     <span>
                       Applied on {new Date(leave.createdAt).toLocaleDateString()}
                     </span>
                   </div>
                 </div>
 
-                <div className="text-right">
+                <div className="text-left sm:text-right">
                   {leave.approvedBy && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Approved by {leave.approvedBy.name}

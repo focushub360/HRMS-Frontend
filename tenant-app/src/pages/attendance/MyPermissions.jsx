@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -16,6 +16,64 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+
+// ============================================================
+// Custom Select Dropdown (Fixes native dropdown overflow on mobile)
+// ============================================================
+const CustomSelect = ({ value, onChange, options, required = false }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find(opt => String(opt.value) === String(value));
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+      >
+        <span className="truncate">{selectedOption ? selectedOption.label : 'Select...'}</span>
+        <ArrowDropDownIcon
+          className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ml-2 ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {isOpen && (
+        // w-full ensures it perfectly matches the button width, max-h-60 prevents it from overflowing the screen vertically
+        <div className="absolute z-50 mt-1 w-full p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg left-0 max-h-60 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+          {options.map((opt) => (
+            <div
+              key={opt.value}
+              onClick={() => {
+                onChange(opt.value);
+                setIsOpen(false);
+              }}
+              className={`px-3 py-2 text-sm cursor-pointer rounded-md transition-colors ${
+                String(opt.value) === String(value)
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900 dark:text-primary-100 font-medium'
+                  : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const MyPermissions = () => {
   const [permissions, setPermissions] = useState([]);
@@ -159,6 +217,24 @@ const MyPermissions = () => {
     return typeLabels[type] || type;
   };
 
+  // Options for the custom dropdowns
+  const statusOptions = [
+    { value: 'all', label: 'All Status' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'approved', label: 'Approved' },
+    { value: 'rejected', label: 'Rejected' }
+  ];
+
+  const monthOptions = Array.from({ length: 12 }, (_, i) => ({
+    value: i + 1,
+    label: new Date(2000, i).toLocaleString('default', { month: 'long' })
+  }));
+
+  const yearOptions = Array.from({ length: 5 }, (_, i) => {
+    const year = new Date().getFullYear() - 2 + i;
+    return { value: year, label: String(year) };
+  });
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -170,7 +246,7 @@ const MyPermissions = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">My Permission History</h1>
           <p className="text-gray-600">Track all your permission requests and their status</p>
@@ -178,7 +254,7 @@ const MyPermissions = () => {
         
         <Button
           onClick={() => setPermissionModal(true)}
-          className="flex items-center space-x-2"
+          className="flex items-center justify-center space-x-2 w-full sm:w-auto"
         >
           <RequestQuoteIcon className="w-4 h-4" />
           <span>New Request</span>
@@ -199,49 +275,33 @@ const MyPermissions = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Status
               </label>
-              <select
+              <CustomSelect
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:focus:ring-primary-500"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
+                onChange={(val) => setStatusFilter(val)}
+                options={statusOptions}
+              />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Month
               </label>
-              <select
+              <CustomSelect
                 value={selectedMonth}
-                onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:focus:ring-primary-500"
-              >
-                {Array.from({ length: 12 }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {new Date(2000, i).toLocaleString('default', { month: 'long' })}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setSelectedMonth(parseInt(val))}
+                options={monthOptions}
+              />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Year
               </label>
-              <select
+              <CustomSelect
                 value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 dark:focus:ring-primary-500"
-              >
-                {Array.from({ length: 5 }, (_, i) => {
-                  const year = new Date().getFullYear() - 2 + i;
-                  return <option key={year} value={year}>{year}</option>;
-                })}
-              </select>
+                onChange={(val) => setSelectedYear(parseInt(val))}
+                options={yearOptions}
+              />
             </div>
           </div>
         </Card.Content>
@@ -344,13 +404,13 @@ const MyPermissions = () => {
                       </div>
                     </div>
 
-                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                       <div className="text-xs text-gray-500">
                         Applied on {permission.createdAt ? formatDate(permission.createdAt) : 'N/A'}
                       </div>
                       
                       {permission.approvedBy && (
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-gray-500 sm:text-right">
                           {permission.status === 'approved' ? 'Approved' : 'Rejected'} by {permission.approvedBy?.name || 'Admin'}
                           {permission.approvedAt && ` on ${formatDate(permission.approvedAt)}`}
                         </div>

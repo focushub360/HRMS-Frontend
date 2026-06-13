@@ -26,11 +26,11 @@ const Layout = ({ children }) => {
         onClose={() => setSidebarOpen(false)} 
       />
       
-      <div className="flex flex-col flex-1 lg:ml-0">
+      <div className="flex flex-col flex-1 min-w-0 lg:ml-0">
         <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
         
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+          <div className="p-4 sm:p-6 lg:p-8 max-w-full">
             {children}
           </div>
         </main>

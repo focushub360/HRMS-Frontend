@@ -113,6 +113,7 @@ export const SIDEBAR_MENU = {
       children: [
         { title: 'My Attendance', path: '/attendance' },
         { title: 'Attendance Report', path: '/attendance/report' },
+        { title: 'Daily Updates', path: '/attendance/daily-updates' },
       ],
     },
      {

@@ -5,13 +5,10 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { permissionService } from '../../services/auth';
 import { toast } from '../../utils/toast';
 
-import { useAuth } from '../../context/AuthContext';
-
 const TeamPermissions = () => {
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { user } = useAuth();
 
   useEffect(() => {
     loadPermissions();
@@ -32,147 +29,181 @@ const TeamPermissions = () => {
     }
   };
 
-  const [updatingIds, setUpdatingIds] = useState(new Set());
-
-  const updateStatus = async (id, status) => {
-    if (updatingIds.has(id)) return; // Prevent double-click
-
-    setUpdatingIds(prev => new Set([...prev, id]));
-    try {
-      const updatedPermission = await permissionService.updateLeadStatus(id, status);
-      toast.success(`Permission ${status}`);
-      
-      // Update local state with backend response (includes approvals)
-      setPermissions(prev => prev.map(p => 
-        p._id === updatedPermission._id ? updatedPermission : p
-      ));
-      
-      // Optional full refetch
-      setTimeout(() => loadPermissions(), 500);
-    } catch (err) {
-      console.error('Update status error:', err);
-      toast.error('Failed to update status');
-      loadPermissions(); // Refresh on error
-    } finally {
-      setUpdatingIds(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(id);
-        return newSet;
-      });
-    }
-  };
-
-  // Status helper functions
+  // ── Status helpers — based on admin decisions only ────────
   const getStatusClass = (permission) => {
-    const hasLeadApproval = permission.approvals?.some(a => a.approverType === 'lead' && a.status === 'approved');
-    const hasAdminApproval = permission.approvals?.some(a => a.approverType === 'admin' && a.status === 'approved');
-    const hasRejection = permission.approvals?.some(a => a.status === 'rejected');
-
-    if (hasRejection) return 'bg-red-100 text-red-800';
-    if (hasLeadApproval && hasAdminApproval) return 'bg-green-100 text-green-800';
-    if (hasLeadApproval) return 'bg-blue-100 text-blue-800';
+    const hasRejection  = permission.approvals?.some(a => a.status === 'rejected');
+    const adminApproved = permission.approvals?.some(
+      a => a.approverType === 'admin' && a.status === 'approved'
+    );
+    if (hasRejection)  return 'bg-red-100 text-red-800';
+    if (adminApproved) return 'bg-green-100 text-green-800';
     return 'bg-yellow-100 text-yellow-800';
   };
 
   const getStatusLabel = (permission) => {
-    const hasLeadApproval = permission.approvals?.some(a => a.approverType === 'lead' && a.status === 'approved');
-    const hasAdminApproval = permission.approvals?.some(a => a.approverType === 'admin' && a.status === 'approved');
-    const hasRejection = permission.approvals?.some(a => a.status === 'rejected');
-
-    if (hasRejection) return 'Rejected';
-    if (hasLeadApproval && hasAdminApproval) return 'Approved';
-    if (hasLeadApproval) return 'Lead ✓ / Admin ⏳';
+    const hasRejection  = permission.approvals?.some(a => a.status === 'rejected');
+    const adminApproved = permission.approvals?.some(
+      a => a.approverType === 'admin' && a.status === 'approved'
+    );
+    if (hasRejection)  return 'Rejected';
+    if (adminApproved) return 'Approved';
     return 'Pending';
+  };
+
+  // ── Approved By — only admin actors, never lead name ─────
+  const getApprovedBy = (permission) => {
+    if (permission.status !== 'approved' && permission.status !== 'rejected') {
+      return <span className="text-sm italic text-gray-400">—</span>;
+    }
+    const adminApproval = permission.approvals?.find(a => a.approverType === 'admin');
+    if (!adminApproval) {
+      return (
+        <span className="text-sm italic text-gray-400">Pending admin review</span>
+      );
+    }
+    const name = adminApproval.approver?.name || 'Admin';
+    return (
+      <span className="text-sm font-medium text-gray-700 dark:text-gray-200 whitespace-nowrap">
+        {name} <span className="text-gray-400 font-normal">(Admin)</span>
+      </span>
+    );
   };
 
   if (loading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Permission Requests</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            Permission Requests
+          </h1>
+          <p className="text-sm text-amber-600 font-medium mt-0.5">
+            ⚠ View only — permission approvals are handled by Admin
+          </p>
+        </div>
         {error && (
           <div className="text-sm text-red-600 bg-red-50 px-3 py-1 rounded-md">
             {error}
           </div>
         )}
       </div>
-      
+
       {permissions.length === 0 ? (
         <Card className="text-center py-12">
           <p className="text-gray-500 text-lg">No pending permission requests.</p>
         </Card>
       ) : (
         <Card>
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="text-left py-3 px-4">Employee</th>
-                <th className="text-left py-3 px-4">Date</th>
-                <th className="text-left py-3 px-4">Time</th>
-                <th className="text-left py-3 px-4">Type</th>
-                <th className="text-left py-3 px-4">Duration</th>
-                <th className="text-left py-3 px-4">Status</th>
-                <th className="text-left py-3 px-4">Approvals</th>
-                <th className="text-left py-3 px-4">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {permissions.map((permission) => (
-                <tr key={permission._id} className="border-t hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium">{permission.employee?.name || 'N/A'}</td>
-                  <td className="py-3 px-4">
-                    {permission.date ? new Date(permission.date).toLocaleDateString() : 'N/A'}
-                  </td>
-                  <td className="py-3 px-4">
-                    {permission.startTime ? new Date(permission.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'} - 
-                    {permission.endTime ? new Date(permission.endTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}
-                  </td>
-                  <td className="py-3 px-4 capitalize">{permission.permissionType}</td>
-                  <td className="py-3 px-4">{permission.duration ? `${permission.duration.toFixed(1)}h` : 'N/A'}</td>
-                <td className="py-3 px-4">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    getStatusClass(permission)
-                  }`}>
-                    {getStatusLabel(permission)}
-                  </span>
-                </td>
-                <td className="py-3 px-4">
-                      {permission.approvals?.map((approval, idx) => (
-                        <span key={idx} className={`px-2 py-1 rounded-full text-xs mr-1 ${
-                          approval.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }`}>
-                          {approval.approver?.name || `${approval.approverType} ${approval.status[0]}`}
-                        </span>
-                      )) || 'None'}
-                </td>
-                <td className="py-3 px-4 space-x-2">
-                  {!permission.approvals?.some(a => a.approverType === 'lead') && (
-                    <>
-                      <Button 
-                        size="sm" 
-                        onClick={() => updateStatus(permission._id, 'approved')}
-                        className="px-3 py-1"
-                        disabled={updatingIds.has(permission._id)}
-                      >
-                        {updatingIds.has(permission._id) ? 'Updating...' : 'Approve'}
-                      </Button>
-                      <Button 
-                        variant="danger" 
-                        size="sm"
-                        onClick={() => updateStatus(permission._id, 'rejected')}
-                        className="px-3 py-1"
-                        disabled={updatingIds.has(permission._id)}
-                      >
-                        {updatingIds.has(permission._id) ? 'Updating...' : 'Reject'}
-                      </Button>
-                    </>
-                  )}
-                </td>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                  {['Employee','Date','Time','Type','Duration','Reason','Status','Approved By','Actions'].map(h => (
+                    <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {permissions.map((permission) => (
+                  <tr
+                    key={permission._id}
+                    className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    {/* Employee */}
+                    <td className="py-3 px-4 font-medium text-gray-900 dark:text-gray-100">
+                      {permission.employee?.name || 'N/A'}
+                    </td>
+
+                    {/* Date */}
+                    <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                      {permission.date
+                        ? new Date(permission.date).toLocaleDateString()
+                        : 'N/A'}
+                    </td>
+
+                    {/* Time */}
+                    <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                      {permission.startTime
+                        ? new Date(permission.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : 'N/A'}
+                      {' – '}
+                      {permission.endTime
+                        ? new Date(permission.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : 'N/A'}
+                    </td>
+
+                    {/* Type */}
+                    <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-300 capitalize">
+                      {permission.permissionType?.replace('-', ' ')}
+                    </td>
+
+                    {/* Duration */}
+                    <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                      {permission.duration ? `${permission.duration.toFixed(1)}h` : 'N/A'}
+                    </td>
+
+                    {/* Reason */}
+                    <td className="py-3 px-4 text-sm text-gray-600 dark:text-gray-300 max-w-[180px]">
+                      <span className="block truncate" title={permission.reason}>
+                        {permission.reason || <span className="italic text-gray-400">—</span>}
+                      </span>
+                    </td>
+
+                    {/* Status */}
+                    <td className="py-3 px-4">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusClass(permission)}`}>
+                        {getStatusLabel(permission)}
+                      </span>
+                    </td>
+
+                    {/* Approved By */}
+                    <td className="py-3 px-4">
+                      {getApprovedBy(permission)}
+                    </td>
+
+                    {/* Actions — buttons present but disabled with tooltip */}
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <div className="flex gap-2 items-center">
+                        <div className="relative group">
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            disabled
+                            className="opacity-50 cursor-not-allowed"
+                          >
+                            Approve
+                          </Button>
+                          {/* Tooltip */}
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                            Only Admin can approve
+                          </div>
+                        </div>
+
+                        <div className="relative group">
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            disabled
+                            className="opacity-50 cursor-not-allowed"
+                          >
+                            Reject
+                          </Button>
+                          {/* Tooltip */}
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                            Only Admin can reject
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
     </div>
@@ -180,4 +211,3 @@ const TeamPermissions = () => {
 };
 
 export default TeamPermissions;
-

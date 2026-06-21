@@ -20,6 +20,7 @@ import EmployeeForm from './pages/employees/EmployeeForm';
 import Profile from './pages/employees/Profile';
 import Attendance from './pages/attendance/Attendance';
 import AttendanceReport from './pages/attendance/AttendanceReport';
+import DailyUpdates from './pages/attendance/DailyUpdates';
 import LeaveApplication from './pages/leaves/LeaveApplication';
 import LeaveList from './pages/leaves/LeaveList';
 import LeaveManagement from './pages/leaves/LeaveManagement';
@@ -218,6 +219,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute allowedRoles={['admin']}>
             <AttendanceReport />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/attendance/daily-updates"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <DailyUpdates />
           </ProtectedRoute>
         }
       />

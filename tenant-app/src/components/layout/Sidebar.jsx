@@ -41,13 +41,17 @@ const Sidebar = ({ isOpen, onClose }) => {
   const [adminPermsCount, setAdminPermsCount] = useState(0);
   const [countLoading, setCountLoading] = useState(false);
 
+  // 🔥 FIX: Normalize user role to lowercase to prevent case-sensitivity issues
+  // (e.g., matching "Manager" to "manager" in your constants)
+  const userRole = user?.role?.toLowerCase();
+
   useEffect(() => {
     loadCompanyInfo();
   }, []);
 
   // Load pending counts for team lead and admin
   useEffect(() => {
-    if (user?.role !== 'teamlead' && user?.role !== 'admin') return;
+    if (userRole !== 'teamlead' && userRole !== 'admin') return;
 
     let intervalId;
     
@@ -55,7 +59,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       if (countLoading) return;
       setCountLoading(true);
       try {
-        if (user?.role === 'teamlead') {
+        if (userRole === 'teamlead') {
           const [leavesResp, permsResp] = await Promise.all([
             leaveService.getLeadPendingLeaves('pending'),
             permissionService.getLeadPendingPermissions('pending')
@@ -63,7 +67,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           const leavesCount = Array.isArray(leavesResp) ? leavesResp.length : 0;
           const permsCount = Array.isArray(permsResp) ? permsResp.length : 0;
           setPendingCount(leavesCount + permsCount);
-        } else if (user?.role === 'admin') {
+        } else if (userRole === 'admin') {
           const [leavesResp, permsResp] = await Promise.all([
             leaveService.getAllLeaves('pending'),
             permissionService.getAllPermissions('pending')
@@ -91,7 +95,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       if (intervalId) clearInterval(intervalId);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [user?.role]);
+  }, [userRole]);
 
   const loadCompanyInfo = async () => {
     try {
@@ -103,16 +107,20 @@ const Sidebar = ({ isOpen, onClose }) => {
   };
 
   const toggleExpand = (title) => {
-        setExpandedItems(prev => ({
-          ...prev,
-          [title]: !prev[title]
-    
-      }));
+    setExpandedItems(prev => ({
+      ...prev,
+      [title]: !prev[title]
+    }));
   };
-    let roleKey = user?.role;
-    if (user?.role === 'team-lead') roleKey = 'teamlead';
-    const menuItems = SIDEBAR_MENU[roleKey] || [];
-    const isActive = (path) => {
+
+  // Map role to the correct key in SIDEBAR_MENU
+  let roleKey = userRole;
+  if (userRole === 'team-lead') roleKey = 'teamlead';
+  
+  // 🔥 NOTE: Ensure your SIDEBAR_MENU in constants.js actually has a 'manager' key defined!
+  const menuItems = SIDEBAR_MENU[roleKey] || [];
+  
+  const isActive = (path) => {
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
@@ -207,7 +215,7 @@ const Sidebar = ({ isOpen, onClose }) => {
               <span className="ml-3 flex-1 font-medium">{item.title}</span>
               
               {/* Pending count badge for Team Management (teamlead only) */}
-              {user?.role === 'teamlead' && 
+              {userRole === 'teamlead' && 
                item.title === 'Team Management' && 
                pendingCount > 0 && (
                 <div className={`ml-2 px-2 py-1 rounded-full text-xs font-bold bg-red-500 text-white flex items-center shadow-sm transition-all duration-200 hover:scale-105 ${
@@ -218,7 +226,7 @@ const Sidebar = ({ isOpen, onClose }) => {
               )}
               
               {/* Pending count badge for Admin Leave Management */}
-              {user?.role === 'admin' && 
+              {userRole === 'admin' && 
                item.title === 'Leave Management' && 
                adminLeavesCount > 0 && (
                 <div className={`ml-2 px-2 py-1 rounded-full text-xs font-bold bg-red-500 text-white flex items-center shadow-sm transition-all duration-200 hover:scale-105 ${
@@ -229,7 +237,7 @@ const Sidebar = ({ isOpen, onClose }) => {
               )}
 
               {/* Pending count badge for Admin Permission Management */}
-              {user?.role === 'admin' && 
+              {userRole === 'admin' && 
                item.title === 'Permission Management' && 
                adminPermsCount > 0 && (
                 <div className={`ml-2 px-2 py-1 rounded-full text-xs font-bold bg-red-500 text-white flex items-center shadow-sm transition-all duration-200 hover:scale-105 ${
@@ -300,7 +308,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         {/* Logo Section */}
-  <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 dark:border-gray-700 transition-colors">
+        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 dark:border-gray-700 transition-colors">
           <div className="flex items-center">
             <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl shadow-sm">
               {companyInfo.logo ? (
@@ -322,7 +330,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           </div>
           
           {/* Edit button for admin only */}
-          {user?.role === 'admin' && (
+          {userRole === 'admin' && (
             <button
               onClick={() => setEditModal(true)}
               className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors duration-200"

@@ -916,3 +916,97 @@ export const locationService = {
     }
   },
 };
+
+export const dailyUpdateService = {
+  // ── Employee routes ────────────────────────────────────────────────────
+  getToday: async () => {
+    try {
+      const response = await api.get('/daily-updates/today');
+      return response.data;
+    } catch (error) {
+      console.error('Get today daily update error:', error);
+      throw error;
+    }
+  },
+
+  getCheckoutGate: async () => {
+    try {
+      const response = await api.get('/daily-updates/checkout-gate');
+      return response.data;
+    } catch (error) {
+      console.error('Get checkout gate error:', error);
+      throw error;
+    }
+  },
+
+  getMyUpdates: async (month) => {
+    try {
+      const response = await api.get('/daily-updates/my', { params: { month } });
+      return response.data;
+    } catch (error) {
+      console.error('Get my daily updates error:', error);
+      throw error;
+    }
+  },
+
+  save: async (data) => {
+    try {
+      const response = await api.post('/daily-updates', data);
+      return response.data;
+    } catch (error) {
+      console.error('Save daily update error:', error);
+      throw error;
+    }
+  },
+
+  // ── Admin routes ────────────────────────────────────────────────────────
+  adminGetEmployees: async (month) => {
+    try {
+      const response = await api.get('/daily-updates/admin/employees', { params: { month } });
+      return response.data;
+    } catch (error) {
+      console.error('Get daily update employees error:', error);
+      throw error;
+    }
+  },
+
+  adminGetAll: async (month, employeeId, page, limit) => {
+    try {
+      const response = await api.get('/daily-updates/admin', { params: { month, employeeId, page, limit } });
+      return response.data;
+    } catch (error) {
+      console.error('Admin get all daily updates error:', error);
+      throw error;
+    }
+  },
+
+  adminExport: async (month, employeeId) => {
+    try {
+      const response = await api.get('/daily-updates/admin/export', { params: { month, employeeId } });
+      return response.data;
+    } catch (error) {
+      console.error('Admin export daily updates error:', error);
+      throw error;
+    }
+  },
+
+  adminEdit: async (id, rows) => {
+    try {
+      const response = await api.put(`/daily-updates/admin/${id}`, { rows });
+      return response.data;
+    } catch (error) {
+      console.error('Admin edit daily update error:', error);
+      throw error;
+    }
+  },
+
+  adminDelete: async (id) => {
+    try {
+      const response = await api.delete(`/daily-updates/admin/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Admin delete daily update error:', error);
+      throw error;
+    }
+  },
+};

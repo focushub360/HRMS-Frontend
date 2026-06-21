@@ -6,10 +6,11 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import PermissionModal from '../attendance/PermissionModal';
+import DailyUpdateModal from '../attendance/DailyUpdateModal';
 import Modal from '../../components/ui/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { dashboardService, attendanceService, permissionService, leaveService, locationService, shiftService } from '../../services/auth';
+import { dashboardService, attendanceService, permissionService, leaveService, locationService, shiftService, dailyUpdateService } from '../../services/auth';
 import { formatWorkingHours } from '../../utils/time';
 
 // NOTE: Employee shift fetching uses shiftService.getTodayShifts() which calls GET /api/shifts/today
@@ -40,6 +41,8 @@ import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import TimerOffIcon from '@mui/icons-material/TimerOff';
 import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 
 const StatCard = ({ title, value, subtitle, icon, color, loading, onClick, clickable = false }) => (
   <Card
@@ -131,6 +134,26 @@ const EmployeeDashboard = () => {
 
   // Multi-shift states
   const [todayShifts, setTodayShifts] = useState([]);
+
+  // Daily Updates (checkout gate) state
+  const [dailyUpdateModalOpen, setDailyUpdateModalOpen] = useState(false);
+  const [dailyUpdateRequired, setDailyUpdateRequired] = useState(false);
+  const [dailyUpdateSubmitted, setDailyUpdateSubmitted] = useState(false);
+  const [checkingDailyUpdate, setCheckingDailyUpdate] = useState(false);
+
+  useEffect(() => {
+    loadDailyUpdateStatus();
+  }, []);
+
+  const loadDailyUpdateStatus = async () => {
+    try {
+      const data = await dailyUpdateService.getToday();
+      setDailyUpdateSubmitted(Boolean(data?.isSubmitted));
+    } catch (error) {
+      console.error('Failed to load daily update status:', error);
+    }
+  };
+
   useEffect(() => {
     loadDashboardData();
     loadPermissionStats();
@@ -540,6 +563,37 @@ const EmployeeDashboard = () => {
     }
   };
 
+  // Gate checkout behind the daily update submission
+  const handleCheckOutClick = async () => {
+    setCheckingDailyUpdate(true);
+    try {
+      const gate = await dailyUpdateService.getCheckoutGate();
+      if (gate?.canCheckOut) {
+        await handleCheckOut();
+      } else {
+        setDailyUpdateRequired(true);
+        setDailyUpdateModalOpen(true);
+      }
+    } catch (error) {
+      console.error('Failed to check daily update status:', error);
+      // Fail open with a warning so the user isn't blocked by a backend issue
+      setDailyUpdateRequired(true);
+      setDailyUpdateModalOpen(true);
+    } finally {
+      setCheckingDailyUpdate(false);
+    }
+  };
+
+  const handleDailyUpdateSubmitted = async (isSubmitted) => {
+    setDailyUpdateSubmitted(isSubmitted);
+    if (isSubmitted && dailyUpdateRequired) {
+      setDailyUpdateRequired(false);
+      setDailyUpdateModalOpen(false);
+      showToast('Daily update saved. Checking you out...', 'success');
+      await handleCheckOut();
+    }
+  };
+
   const handlePermissionSuccess = () => {
     loadPermissionStats();
     loadDashboardData();
@@ -713,6 +767,17 @@ const EmployeeDashboard = () => {
         </Button>
       </div>
 
+      {/* Not Checked-In Warning */}
+      {!checkInTime && !activeShift && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200 dark:bg-amber-900/25 dark:border-amber-800">
+          <WarningAmberIcon className="w-5 h-5 text-amber-600 dark:text-amber-300 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-800 dark:text-amber-100">
+            You haven't checked in yet today. If you do not check in, today's attendance will be
+            recorded as absent.
+          </p>
+        </div>
+      )}
+
       {/* Multi-Shift Attendance Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="lg:col-span-2 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 shadow-sm">
@@ -792,15 +857,26 @@ const EmployeeDashboard = () => {
                 </div>
 
                 {activeShift ? (
-                  <Button
-                    onClick={handleCheckOut}
-                    loading={checking}
-                    size="lg"
-                    variant="danger"
-                    className="w-full rounded-lg"
-                  >
-                    {checking ? (checkingStatus === 'locating' ? 'Acquiring Location...' : 'Checking Out...') : actionLabel}
-                  </Button>
+                  <div className="space-y-2">
+                    <Button
+                      onClick={() => setDailyUpdateModalOpen(true)}
+                      variant="outline"
+                      size="lg"
+                      className="w-full rounded-lg"
+                    >
+                      <AssignmentTurnedInIcon className="w-5 h-5 mr-2" />
+                      {dailyUpdateSubmitted ? 'Daily Updates (Submitted)' : 'Daily Updates'}
+                    </Button>
+                    <Button
+                      onClick={handleCheckOutClick}
+                      loading={checking || checkingDailyUpdate}
+                      size="lg"
+                      variant="danger"
+                      className="w-full rounded-lg"
+                    >
+                      {checking ? (checkingStatus === 'locating' ? 'Acquiring Location...' : 'Checking Out...') : actionLabel}
+                    </Button>
+                  </div>
                 ) : !attendanceComplete || nextCheckInShift ? (
                   <Button
                     onClick={() => triggerCheckIn(actionShift?._id || null, actionShift?.displayName || actionShift?.name || null)}
@@ -1050,15 +1126,15 @@ const EmployeeDashboard = () => {
         </Card>
       </div>
 
-      {/* Upcoming Leaves */}
-      <Card>
-        <Card.Header className="border-b border-gray-200 pb-4">
-          <div className="flex items-center justify-between">
-            <Card.Title className="text-lg font-semibold text-gray-900 flex items-center">
-              <CalendarTodayIcon className="w-5 h-5 mr-2 text-blue-600" />
+            {/* Upcoming Leaves */}
+      <Card className="bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700">
+        <Card.Header className="border-b border-gray-200 dark:border-gray-700 pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <Card.Title className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center">
+              <CalendarTodayIcon className="w-5 h-5 mr-2 text-blue-600 dark:text-blue-400" />
               Upcoming Time Off
             </Card.Title>
-            <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full font-medium border border-gray-200">
+            <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 rounded-full font-medium border border-gray-200 dark:border-gray-700 whitespace-nowrap self-start sm:self-center">
               {data?.upcomingLeaves?.length || 0} scheduled
             </span>
           </div>
@@ -1068,34 +1144,43 @@ const EmployeeDashboard = () => {
             {data?.upcomingLeaves?.map((leave) => (
               <div
                 key={leave._id}
-                className="flex items-center justify-between p-4 bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-xl hover:shadow-md transition-all duration-300"
+                className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl hover:shadow-md transition-all duration-300 gap-3"
               >
-                <div className="flex-1">
-                  <p className="font-semibold text-gray-900">
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-900 dark:text-gray-100 text-sm sm:text-base">
                     {new Date(leave.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(leave.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </p>
-                  <p className="text-sm text-gray-600 capitalize mt-1">
+                  <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 capitalize mt-1">
                     {leave.leaveType} Leave {leave.totalDays} {leave.totalDays === 1 ? 'day' : 'days'}
                   </p>
                 </div>
-                <span className="px-3 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full border border-green-200">
+                <span className="px-3 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded-full border border-green-200 dark:border-green-800 whitespace-nowrap self-start sm:self-center">
                   Approved
                 </span>
               </div>
             ))}
 
             {(!data?.upcomingLeaves || data.upcomingLeaves.length === 0) && (
-              <div className="col-span-3 text-center py-12">
-                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
-                  <CalendarTodayIcon className="w-10 h-10 text-gray-400" />
+              <div className="col-span-1 md:col-span-2 lg:col-span-3 text-center py-12">
+                <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
+                  <CalendarTodayIcon className="w-10 h-10 text-gray-400 dark:text-gray-500" />
                 </div>
-                <p className="text-gray-500 font-medium text-lg">No upcoming leaves scheduled</p>
-                <p className="text-gray-400 mt-2">Plan your next time off through the leave management system</p>
+                <p className="text-gray-500 dark:text-gray-300 font-medium text-lg">No upcoming leaves scheduled</p>
+                <p className="text-gray-400 dark:text-gray-500 mt-2 text-sm">Plan your next time off through the leave management system</p>
               </div>
             )}
           </div>
         </Card.Content>
       </Card>
+
+      {/* Daily Updates Modal */}
+      <DailyUpdateModal
+        isOpen={dailyUpdateModalOpen}
+        onClose={() => { setDailyUpdateModalOpen(false); setDailyUpdateRequired(false); }}
+        attendanceId={attendanceStatus?.activeAttendanceId}
+        requireBeforeCheckout={dailyUpdateRequired}
+        onSubmitted={handleDailyUpdateSubmitted}
+      />
 
       {/* Permission Modal */}
       <PermissionModal

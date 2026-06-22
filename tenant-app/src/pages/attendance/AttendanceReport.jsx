@@ -651,13 +651,23 @@ const AttendanceReport = () => {
       );
     }
 
+  
     // 3. Handle 'absent' status
     if (normalizedStatus === 'absent') {
-      // Check if it's the 24-hour auto-absent (has checkIn, no checkOut, or specific absentReason)
-      const hasCheckInButNoOut = record?.checkIn && !record?.checkOut;
-      const is24hAutoAbsent = record?.absentReason === 'not-checked-out-24h' || record?.absentReason === 'not-checked-out';
-      
-      if (hasCheckInButNoOut || is24hAutoAbsent) {
+      // Priority 1: Had a check-in but never checked out (24h auto-absent rule)
+      const is24hAutoAbsent =
+        record?.absentReason === 'not-checked-out-24h' ||
+        record?.absentReason === 'not-checked-out' ||
+        record?.autoCheckedOut === true;
+
+      // Also check sessions — if any session has checkIn but no checkOut and was auto-closed
+      const hasSessionNotCheckedOut = Array.isArray(record?.sessions) &&
+        record.sessions.some(s => s.checkIn && !s.checkOut && s._rawRecord?.autoCheckedOut);
+
+      // Flat record case: checkIn present, no checkOut, marked absent
+      const flatNotCheckedOut = record?.checkIn && !record?.checkOut && !record?._synthetic;
+
+      if (is24hAutoAbsent || hasSessionNotCheckedOut || flatNotCheckedOut) {
         return (
           <div className="flex items-center space-x-1">
             <div className="w-2 h-2 bg-red-500 rounded-full" />
@@ -666,13 +676,22 @@ const AttendanceReport = () => {
         );
       }
 
-      // Otherwise, standard absent (no check-in at all, or admin marked)
+      // Priority 2: Auto-generated synthetic absent (no check-in at all)
       const isAutoMarked = Boolean(record?.autoMarked || record?._synthetic);
-      const label = isAutoMarked ? 'Absent (Not Checked In)' : 'Absent (Admin)';
+      if (isAutoMarked) {
+        return (
+          <div className="flex items-center space-x-1">
+            <div className="w-2 h-2 bg-red-500 rounded-full" />
+            <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full">Absent (Not Checked In)</span>
+          </div>
+        );
+      }
+
+      // Priority 3: Admin manually marked absent
       return (
         <div className="flex items-center space-x-1">
           <div className="w-2 h-2 bg-red-500 rounded-full" />
-          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full">{label}</span>
+          <span className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded-full">Absent (Admin)</span>
         </div>
       );
     }
@@ -1259,15 +1278,29 @@ records.forEach(record => {
   const attendanceWithSyntheticAbsents = [...attendance, ...statsAndDetailsSyntheticAbsents];
 
   // ─── Group for details table (date-wise, same-day sessions in one row) ────
-  const groupedForDetails = groupAttendanceByEmployeeDate(attendanceWithSyntheticAbsents)
+ const groupedForDetails = groupAttendanceByEmployeeDate(attendanceWithSyntheticAbsents)
     .sort((a, b) => {
-      // Sort by date descending, then by employee name
-      const dA = a.dateKey || '';
-      const dB = b.dateKey || '';
-      if (dB !== dA) return dB.localeCompare(dA);
-      const nA = a.employee?.name || '';
-      const nB = b.employee?.name || '';
-      return nA.localeCompare(nB);
+      // Sort by first check-in time descending (latest login at top)
+      const getFirstCheckIn = (record) => {
+        if (record.sessions && record.sessions.length > 0) {
+          const times = record.sessions
+            .map(s => s.checkIn ? new Date(s.checkIn).getTime() : 0)
+            .filter(t => t > 0);
+          return times.length > 0 ? Math.min(...times) : 0;
+        }
+        return record.checkIn ? new Date(record.checkIn).getTime() : 0;
+      };
+      const tA = getFirstCheckIn(a);
+      const tB = getFirstCheckIn(b);
+      // Records with no check-in (absents) go to bottom
+      if (tA === 0 && tB === 0) {
+        const dA = a.dateKey || '';
+        const dB = b.dateKey || '';
+        return dB.localeCompare(dA);
+      }
+      if (tA === 0) return 1;
+      if (tB === 0) return -1;
+      return tB - tA; // Latest first
     });
 
   // ─── filteredAttendance for STATS — uses grouped (employee+date) data so a ──

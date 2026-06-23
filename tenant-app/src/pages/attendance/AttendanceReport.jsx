@@ -51,90 +51,90 @@ const toLocalDateKey = (value) => {
 };
 
 const todayStr = toLocalDateKey(new Date());
+
 // ─── Get date key from a record (absent-safe) ──────────────────────────────
 const getRecordDateKey = (record) =>
   toLocalDateKey(record?.date) || toLocalDateKey(record?.checkIn) || null;
 
 
 // ─── Shared day-status resolver ─────────────────────────────────────────────
-// Used by BOTH groupAttendanceByEmployeeDate (Stats/Summary/Details) AND
-// buildReportCell (Report tab) so every view applies the identical rule for
-// turning one-or-more session records on a given day into a single
-// Present / Half-day / Absent / Permission status. This is the ONLY place
-// that decides day status — do not duplicate this logic elsewhere. 
 const resolveDayAggregate = (records = []) => {
-	if (!records.length) return { status: 'absent', dayType: 'full-day', workingHours: 0 };
+  if (!records.length) return { status: 'absent', dayType: 'full-day', workingHours: 0 };
 
-	const now = Date.now();
-	const twentyFourHours = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const twentyFourHours = 24 * 60 * 60 * 1000;
 
-	let totalValidHours = 0;
-	let hasOpenSession = false;
-	let hasValidCompletedSession = false;
-	let hasPermission = false;
+  let totalValidHours = 0;
+  let hasOpenSessionToday = false;
+  let hasValidCompletedSession = false;
+  let hasPermission = false;
+  let hasNotCheckedOut = false;
 
-	records.forEach(r => {
-		const checkInTime = r.checkIn ? new Date(r.checkIn).getTime() : 0;
-		const hasCheckOut = Boolean(r.checkOut);
-		const recordDateKey = getRecordDateKey(r);
-		const isToday = recordDateKey === todayStr;
+  records.forEach(r => {
+    const checkInTime = r.checkIn ? new Date(r.checkIn).getTime() : 0;
+    const hasCheckOut = Boolean(r.checkOut);
+    const recordDateKey = getRecordDateKey(r);
+    const isToday = recordDateKey === todayStr;
 
-		// 1. Handle incomplete sessions (Checked in, but no check out)
-		if (r.checkIn && !hasCheckOut) {
-			if (isToday) {
-				hasOpenSession = true; // Currently working today
-			} else if (now - checkInTime >= twentyFourHours) {
-				// Past date + >24h = Auto-absent. Ignore this session completely (0 hours).
-				return;
-			} else {
-				// Past date but <24h = Still consider it open/working
-				hasOpenSession = true;
-			}
-			return; // Don't add to valid hours
-		}
+    // ── Incomplete session (checked in, no checkout) ──────────────────────
+   if (r.checkIn && !hasCheckOut) {
+  if (now - checkInTime >= twentyFourHours) {
+    // >24h without checkout = not-checked-out (regardless of date)
+    hasNotCheckedOut = true;
+  } else if (isToday) {
+    // Today and within 24h = actively working
+    hasOpenSessionToday = true;
+  } else {
+    // Past date but <24h = still treat as open/working
+    hasOpenSessionToday = true;
+  }
+  return; // Never add hours for incomplete sessions
+}
 
-		// 2. Handle completed sessions (Checked in AND Checked out)
-		if (hasCheckOut) {
-			// Ignore sessions that were explicitly auto-checked out as absent by the 24h rule
-			if (r.autoCheckedOut || r.absentReason === 'not-checked-out') {
-				return;
-			}
+    // ── Completed session (has both checkIn and checkOut) ─────────────────
+    if (hasCheckOut) {
+      // Skip sessions explicitly auto-closed as absent
+      if (r.autoCheckedOut || r.absentReason === 'not-checked-out' || r.absentReason === 'not-checked-out-24h') {
+        hasNotCheckedOut = true;
+        return;
+      }
 
-			// Add this session's hours to the daily total
-			totalValidHours += Number(r.workingHours) || 0;
-			hasValidCompletedSession = true;
+      totalValidHours += Number(r.workingHours) || 0;
+      hasValidCompletedSession = true;
 
-			// Check if there's a permission attached
-			const s = String(r.status || '').toLowerCase();
-			if (s === 'present-with-permission' || s === 'with-permission' || s === 'on-permission') {
-				hasPermission = true;
-			}
-		}
-	});
+      const s = String(r.status || '').toLowerCase();
+      if (s === 'present-with-permission' || s === 'with-permission' || s === 'on-permission') {
+        hasPermission = true;
+      }
+    }
+  });
 
-	// Priority 1: If currently working (open session today), mark as working
-	if (hasOpenSession) {
-		return { status: 'working', dayType: 'full-day', workingHours: totalValidHours };
-	}
+  // ── Priority 1: Currently working today (open session) ───────────────────
+  if (hasOpenSessionToday) {
+    return { status: 'working', dayType: 'full-day', workingHours: totalValidHours };
+  }
 
-	// Priority 2: If no valid completed sessions exist, the day is absent
-	if (!hasValidCompletedSession) {
-		return { status: 'absent', dayType: 'full-day', workingHours: 0 };
-	}
+  // ── Priority 2: Has completed sessions — determine status from hours ──────
+  if (hasValidCompletedSession) {
+    if (hasPermission) {
+      return { status: 'present-with-permission', dayType: 'full-day', workingHours: totalValidHours };
+    }
+    if (totalValidHours > 4.5) {
+      return { status: 'present', dayType: 'full-day', workingHours: totalValidHours };
+    } else {
+      return { status: 'half-day', dayType: 'half-day', workingHours: totalValidHours };
+    }
+  }
 
-	// Priority 3: If they have a permission, keep the permission status
-	if (hasPermission) {
-		return { status: 'present-with-permission', dayType: 'full-day', workingHours: totalValidHours };
-	}
+  // ── Priority 3: No valid completed sessions — check if not-checked-out ────
+  if (hasNotCheckedOut) {
+    return { status: 'absent', dayType: 'full-day', workingHours: 0, absentReason: 'not-checked-out' };
+  }
 
-	// Priority 4: DYNAMIC HOUR CALCULATION (Matches Attendance.jsx exactly)
-	// <= 4.5 hours is Half Day, > 4.5 hours is Full Day (Present)
-	if (totalValidHours > 4.5) {
-		return { status: 'present', dayType: 'full-day', workingHours: totalValidHours };
-	} else {
-		return { status: 'half-day', dayType: 'half-day', workingHours: totalValidHours };
-	}
+  // ── Priority 4: Truly absent — no check-in at all ────────────────────────
+  return { status: 'absent', dayType: 'full-day', workingHours: 0 };
 };
+
 const AttendanceReport = () => {
   const { user } = useAuth();
   const [attendance, setAttendance] = useState([]);
@@ -177,14 +177,10 @@ const AttendanceReport = () => {
 
   const canEditAttendanceTime = user?.role === 'admin' && user?.canEditAttendanceTime === true;
 
-  // ─── SINGLE SHARED FILTER SOURCE — used identically by Stats, Summary, Details, Report ──
   const activeDateRange = dateRange;
   const activeDateFilter = dateFilter;
 
-  
-
   // ─── Date helpers ─────────────────────────────────────────────────────────
-
   const syncSelectedPeriod = (dateObj) => {
     if (!dateObj || !(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return;
     const month = dateObj.getMonth() + 1;
@@ -331,11 +327,10 @@ const AttendanceReport = () => {
     });
   };
 
-  // ─── Group flat attendance records by employee+date (for details table) ───
-  // Mirrors groupByDate in Attendance.jsx but keyed on employee too.
+  // ─── Group flat attendance records by employee+date ───────────────────────
   const groupAttendanceByEmployeeDate = (flatRecords) => {
     if (!Array.isArray(flatRecords)) return [];
-    const byKey = new Map(); // key = `empId__dateKey`
+    const byKey = new Map();
 
     for (const record of flatRecords) {
       if (!record) continue;
@@ -358,7 +353,6 @@ const AttendanceReport = () => {
           _synthetic: record._synthetic || false,
           checkInLocation: record.checkInLocation,
           attendanceTimeEditAudit: record.attendanceTimeEditAudit || [],
-          // Keep first real record reference for edit actions
           _firstRecord: record,
           _rawRecords: [],
         });
@@ -367,10 +361,9 @@ const AttendanceReport = () => {
       const grouped = byKey.get(mapKey);
       grouped._rawRecords.push(record);
 
- if (record.autoMarked) grouped.autoMarked = true;
-    if (record.absentReason) grouped.absentReason = record.absentReason;
-    
-      // Build session from this record
+      if (record.autoMarked) grouped.autoMarked = true;
+      if (record.absentReason) grouped.absentReason = record.absentReason;
+
       if (record.checkIn || record.checkOut) {
         grouped.sessions.push({
           _id: record._id,
@@ -385,11 +378,12 @@ const AttendanceReport = () => {
           checkOutPlace: record.checkOutPlace,
           checkInLocation: record.checkInLocation,
           checkOutLocation: record.checkOutLocation,
+          autoCheckedOut: record.autoCheckedOut,
+          absentReason: record.absentReason,
           _rawRecord: record,
         });
       }
 
-      // (final day status/dayType is resolved once, after the loop, via resolveDayAggregate)
       if (!grouped.shiftName && (record.shiftName || record.shift?.displayName || record.shift?.name)) {
         grouped.shiftName = record.shiftName || record.shift?.displayName || record.shift?.name;
       }
@@ -399,7 +393,6 @@ const AttendanceReport = () => {
       }
     }
 
-    // Compute total working hours, sort sessions, resolve status
     return Array.from(byKey.values()).map((g) => {
       g.sessions.sort((a, b) => {
         const ta = a.checkIn ? new Date(a.checkIn).getTime() : 0;
@@ -410,6 +403,7 @@ const AttendanceReport = () => {
       g.status = resolved.status;
       g.dayType = resolved.dayType;
       g.workingHours = resolved.workingHours;
+      if (resolved.absentReason) g.absentReason = resolved.absentReason;
       return g;
     });
   };
@@ -627,11 +621,10 @@ const AttendanceReport = () => {
     }
   };
 
-    // ─── Status badge ─────────────────────────────────────────────────────────
+  // ─── Status badge ─────────────────────────────────────────────────────────
   const getStatusBadge = (record) => {
     const normalizedStatus = String(record?.status || '').toLowerCase();
 
-    // 1. Handle 'working' status (currently checked in, today)
     if (normalizedStatus === 'working') {
       return (
         <div className="flex items-center space-x-1">
@@ -641,7 +634,6 @@ const AttendanceReport = () => {
       );
     }
 
-    // 2. Handle 'incomplete' status (past date, checked in but not checked out)
     if (normalizedStatus === 'incomplete') {
       return (
         <div className="flex items-center space-x-1">
@@ -651,8 +643,6 @@ const AttendanceReport = () => {
       );
     }
 
-  
-    // 3. Handle 'absent' status
     if (normalizedStatus === 'absent') {
       // Priority 1: Had a check-in but never checked out (24h auto-absent rule)
       const is24hAutoAbsent =
@@ -660,11 +650,11 @@ const AttendanceReport = () => {
         record?.absentReason === 'not-checked-out' ||
         record?.autoCheckedOut === true;
 
-      // Also check sessions — if any session has checkIn but no checkOut and was auto-closed
+      // Check sessions — if any session has checkIn but no checkOut and was auto-closed
       const hasSessionNotCheckedOut = Array.isArray(record?.sessions) &&
-        record.sessions.some(s => s.checkIn && !s.checkOut && s._rawRecord?.autoCheckedOut);
+        record.sessions.some(s => s.checkIn && !s.checkOut && (s._rawRecord?.autoCheckedOut || s.autoCheckedOut));
 
-      // Flat record case: checkIn present, no checkOut, marked absent
+      // Flat record: checkIn present, no checkOut, not synthetic
       const flatNotCheckedOut = record?.checkIn && !record?.checkOut && !record?._synthetic;
 
       if (is24hAutoAbsent || hasSessionNotCheckedOut || flatNotCheckedOut) {
@@ -676,7 +666,7 @@ const AttendanceReport = () => {
         );
       }
 
-      // Priority 2: Auto-generated synthetic absent (no check-in at all)
+      // Priority 2: Auto-generated synthetic absent (no check-in at all) — hidden from details but kept for stats
       const isAutoMarked = Boolean(record?.autoMarked || record?._synthetic);
       if (isAutoMarked) {
         return (
@@ -696,18 +686,22 @@ const AttendanceReport = () => {
       );
     }
 
-    // 4. Fallback checks for grouped records (if status wasn't explicitly set to absent/working)
+    // Fallback checks for grouped records
     const sessions = record?.sessions;
     if (sessions && sessions.length > 0) {
-      const hasOpen = sessions.some(s => s.checkIn && !s.checkOut);
-      if (hasOpen) {
-        return (
-          <div className="flex items-center space-x-1">
-            <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
-            <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full">Working</span>
-          </div>
-        );
-      }
+      const hasOpen = sessions.some(s => {
+  if (!s.checkIn || s.checkOut) return false;
+  const elapsed = Date.now() - new Date(s.checkIn).getTime();
+  return elapsed < 24 * 60 * 60 * 1000;
+});
+if (hasOpen) {
+  return (
+    <div className="flex items-center space-x-1">
+      <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+      <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full">Working</span>
+    </div>
+  );
+}
     } else if (!record?.checkIn) {
       return (
         <div className="flex items-center space-x-1">
@@ -724,7 +718,6 @@ const AttendanceReport = () => {
       );
     }
 
-    // 5. Standard status badges
     switch (normalizedStatus) {
       case 'present':
         return (
@@ -763,6 +756,7 @@ const AttendanceReport = () => {
         );
     }
   };
+
   const getPermissionsForRecord = (record) => {
     if (!record) return [];
     const recordDate = record.dateKey || getRecordDateKey(record);
@@ -786,6 +780,20 @@ const AttendanceReport = () => {
     const d = new Date(dateString);
     if (!d || Number.isNaN(d.getTime())) return '--:--';
     return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+
+  // ─── Format checkout time — shows "Not checked out" for past open sessions ─
+ const formatCheckOutTime = (session) => {
+    if (session.checkOut) return formatTime(session.checkOut);
+    if (!session.checkIn) return '--:--';
+    const checkInTime = new Date(session.checkIn).getTime();
+    const now = Date.now();
+    const twentyFourHours = 24 * 60 * 60 * 1000;
+    // Only show "Not checked out" after 24 hours have passed since check-in
+    if (now - checkInTime >= twentyFourHours) {
+      return <span className="text-xs font-medium text-red-500 whitespace-nowrap">Not checked out</span>;
+    }
+    return '--:--'; // Still within 24 hours — treat as actively working
   };
 
   const formatDate = (dateString) => {
@@ -1221,52 +1229,39 @@ const AttendanceReport = () => {
     }
     return <span className="text-xs text-gray-400">Location unavailable</span>;
   };
-// ─── Stats ────────────────────────────────────────────────────────────────
-const calculateOverallStats = (records) => {
-	let presentCount = 0, halfDayCount = 0, permissionCount = 0, workingCount = 0, absentCount = 0;
-records.forEach(record => {
-		const status = String(record.status || '').toLowerCase();
 
-		if (status === 'working') {
-			workingCount++;
-		} else if (status === 'absent') {
-			absentCount++;
-		} else if (status === 'half-day') {
-			halfDayCount++;
-		} else if (status === 'present-with-permission' || status === 'with-permission') {
-			permissionCount++;
-			presentCount++;
-		} else if (status === 'incomplete') {
-			presentCount++; // Count incomplete as present since they did check in
-		} else {
-			presentCount++;
-		}
-	});
-	const totalRecords = presentCount + halfDayCount + absentCount + workingCount;
-	
-	const totalWorkingHours = records
-		.filter(r => r.sessions ? r.sessions.some(s => s.checkOut) : Boolean(r.checkOut))
-		.reduce((sum, r) => sum + (Number(r.workingHours) || 0), 0);
-		
-	const completedCount = presentCount + halfDayCount;
-	const averageHours = completedCount > 0 ? (totalWorkingHours / completedCount).toFixed(1) : 0;
-	
-	const attendanceRate = totalRecords > 0
-		? (((presentCount + (halfDayCount * 0.5) + (permissionCount * 0.75)) / totalRecords) * 100).toFixed(1)
-		: 0;
-		
-	return { 
-		totalRecords, 
-		presentCount, 
-		halfDayCount, 
-		permissionCount, 
-		absentCount, 
-		workingCount, 
-		totalWorkingHours: totalWorkingHours.toFixed(1), 
-		averageHours, 
-		attendanceRate 
-	};
-};
+  // ─── Stats ────────────────────────────────────────────────────────────────
+  const calculateOverallStats = (records) => {
+    let presentCount = 0, halfDayCount = 0, permissionCount = 0, workingCount = 0, absentCount = 0;
+    records.forEach(record => {
+      const status = String(record.status || '').toLowerCase();
+      if (status === 'working') {
+        workingCount++;
+      } else if (status === 'absent') {
+        absentCount++;
+      } else if (status === 'half-day') {
+        halfDayCount++;
+      } else if (status === 'present-with-permission' || status === 'with-permission') {
+        permissionCount++;
+        presentCount++;
+      } else if (status === 'incomplete') {
+        presentCount++;
+      } else {
+        presentCount++;
+      }
+    });
+    const totalRecords = presentCount + halfDayCount + absentCount + workingCount;
+    const totalWorkingHours = records
+      .filter(r => r.sessions ? r.sessions.some(s => s.checkOut) : Boolean(r.checkOut))
+      .reduce((sum, r) => sum + (Number(r.workingHours) || 0), 0);
+    const completedCount = presentCount + halfDayCount;
+    const averageHours = completedCount > 0 ? (totalWorkingHours / completedCount).toFixed(1) : 0;
+    const attendanceRate = totalRecords > 0
+      ? (((presentCount + (halfDayCount * 0.5) + (permissionCount * 0.75)) / totalRecords) * 100).toFixed(1)
+      : 0;
+    return { totalRecords, presentCount, halfDayCount, permissionCount, absentCount, workingCount, totalWorkingHours: totalWorkingHours.toFixed(1), averageHours, attendanceRate };
+  };
+
   // ─── Build synthetic absents (shared by Stats, Details AND Summary) ───────
   const statsAndDetailsSyntheticAbsents = buildSyntheticAbsents(
     attendance,
@@ -1277,10 +1272,10 @@ records.forEach(record => {
 
   const attendanceWithSyntheticAbsents = [...attendance, ...statsAndDetailsSyntheticAbsents];
 
-  // ─── Group for details table (date-wise, same-day sessions in one row) ────
- const groupedForDetails = groupAttendanceByEmployeeDate(attendanceWithSyntheticAbsents)
+  // ─── Group for details table (date-wise, sessions in one row) ─────────────
+  // Sort by first check-in time descending (latest login first, earliest at bottom)
+  const groupedForDetails = groupAttendanceByEmployeeDate(attendanceWithSyntheticAbsents)
     .sort((a, b) => {
-      // Sort by first check-in time descending (latest login at top)
       const getFirstCheckIn = (record) => {
         if (record.sessions && record.sessions.length > 0) {
           const times = record.sessions
@@ -1303,31 +1298,47 @@ records.forEach(record => {
       return tB - tA; // Latest first
     });
 
-  // ─── filteredAttendance for STATS — uses grouped (employee+date) data so a ──
-  // ─── single day with multiple sessions is counted once, matching Details ──
   const filteredForStats = groupedForDetails;
 
-  // ─── filteredAttendance for DETAILS TABLE ─────────────────────────────────
-  const filteredAttendance = groupedForDetails.filter(record => {
-    if (statusFilter === 'all') return true;
+  // ─── Helper: true ONLY for pure "never checked in" auto-absents ──────────
+  const isNotCheckedInAbsent = (record) => {
     const s = String(record?.status || '').toLowerCase();
-    if (statusFilter === 'present') return s === 'present';
-    if (statusFilter === 'half-day') return s === 'half-day';
-    if (statusFilter === 'working') {
-		return String(record?.status || '').toLowerCase() === 'working';
-	}
-    if (statusFilter === 'permission') return s === 'present-with-permission' || s === 'with-permission';
-    if (statusFilter === 'absent') return s === 'absent' || (!record?.checkIn && (!record?.sessions || record.sessions.length === 0));
-    if (statusFilter === 'working') {
-      if (record.sessions) return record.sessions.some(s => s.checkIn && !s.checkOut);
-      return Boolean(record?.checkIn) && !record?.checkOut;
-    }
-    return true;
-  });
+    if (s !== 'absent') return false;
 
-  // ─── Employee Summary — derived from the SAME grouped data set as Stats/───
-  // ─── Details (one row per employee+date), always lists ALL active ─────────
-  // ─── employees matching current filters ────────────────────────────────────
+    // Check if there is ANY real check-in across the record or its sessions
+    const hasAnyCheckIn =
+      Boolean(record?.checkIn) ||
+      Boolean(record?._firstRecord?.checkIn) ||
+      (Array.isArray(record?.sessions) && record.sessions.some(sess => Boolean(sess?.checkIn))) ||
+      (Array.isArray(record?._rawRecords) && record._rawRecords.some(r => Boolean(r?.checkIn)));
+
+    // If they checked in at some point, always keep the record
+    if (hasAnyCheckIn) return false;
+
+    // No check-in found — only hide if system-generated (not admin-manual)
+    const isSystemGenerated = Boolean(record?._synthetic) || Boolean(record?.autoMarked);
+    return isSystemGenerated;
+  };
+
+  // ─── filteredAttendance for DETAILS TABLE ─────────────────────────────────
+  // Always exclude "not checked in" auto-absents; only show:
+  // 1. Checked-in but not checked-out absents
+  // 2. Admin manually marked absents
+  // 3. All present / half-day / working / permission records
+  const filteredAttendance = groupedForDetails
+    .filter(record => !isNotCheckedInAbsent(record))
+    .filter(record => {
+      if (statusFilter === 'all') return true;
+      const s = String(record?.status || '').toLowerCase();
+      if (statusFilter === 'present') return s === 'present';
+      if (statusFilter === 'half-day') return s === 'half-day';
+      if (statusFilter === 'working') return s === 'working';
+      if (statusFilter === 'permission') return s === 'present-with-permission' || s === 'with-permission';
+      if (statusFilter === 'absent') return s === 'absent';
+      return true;
+    });
+
+  // ─── Employee Summary ─────────────────────────────────────────────────────
   const summaryRows = employees
     .filter(emp => selectedEmployee === 'all' || String(emp._id) === String(selectedEmployee))
     .map(emp => {
@@ -1353,7 +1364,7 @@ records.forEach(record => {
   const getReportStatusLabel = (cell) => {
     if (!cell || cell.records.length === 0) return isSunday(cell?.dateKey) ? 'Sunday' : '-';
     if (cell.status === 'working') return 'Working';
-    if (cell.status === 'incomplete') return '-'; 
+    if (cell.status === 'incomplete') return '-';
     if (cell.status === 'absent') return 'Absent';
     if (cell.dayType === 'half-day') return 'Half Day';
     return 'Present';
@@ -1372,7 +1383,7 @@ records.forEach(record => {
   const getReportStatusCode = (cell) => {
     if (!cell || cell.records.length === 0) return isSunday(cell?.dateKey) ? 'S' : '-';
     if (cell.status === 'working') return 'W';
-    if (cell.status === 'incomplete') return '-'; 
+    if (cell.status === 'incomplete') return '-';
     if (cell.status === 'absent') return 'A';
     if (cell.dayType === 'half-day') return 'HA';
     return 'P';
@@ -1381,7 +1392,7 @@ records.forEach(record => {
   const getReportStatusCodeClassName = (cell) => {
     const code = getReportStatusCode(cell);
     if (code === 'P') return 'text-green-600 dark:text-green-300';
-    	if (code === 'W') return 'text-yellow-600 dark:text-yellow-300';
+    if (code === 'W') return 'text-yellow-600 dark:text-yellow-300';
     if (code === 'HA') return 'text-orange-500 dark:text-orange-300';
     if (code === 'A') return 'text-red-600 dark:text-red-300';
     if (code === 'S') return 'text-indigo-500 dark:text-indigo-300';
@@ -1489,15 +1500,14 @@ records.forEach(record => {
     return Number.isNaN(date.getTime()) ? (isoDate || '-') : date.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   };
 
-const buildReportCell = (records = [], employee, dateKey) => {
-	const cell = { key: `${getId(employee) || 'unknown'}-${dateKey}`, dateKey, employee, status: 'present', dayType: 'full-day', shiftNames: [], locationNames: [], workingHours: 0, records };
-	if (records.length > 0) {
-		const resolved = resolveDayAggregate(records);
-		cell.status = resolved.status;
-		cell.dayType = resolved.dayType;
-		cell.workingHours = resolved.workingHours;
-	}
-// ... (leave the rest of the function as is)
+  const buildReportCell = (records = [], employee, dateKey) => {
+    const cell = { key: `${getId(employee) || 'unknown'}-${dateKey}`, dateKey, employee, status: 'present', dayType: 'full-day', shiftNames: [], locationNames: [], workingHours: 0, records };
+    if (records.length > 0) {
+      const resolved = resolveDayAggregate(records);
+      cell.status = resolved.status;
+      cell.dayType = resolved.dayType;
+      cell.workingHours = resolved.workingHours;
+    }
     records.forEach(record => {
       const shiftName = formatShiftDisplay(record);
       if (shiftName && !cell.shiftNames.includes(shiftName)) cell.shiftNames.push(shiftName);
@@ -1507,7 +1517,6 @@ const buildReportCell = (records = [], employee, dateKey) => {
     return cell;
   };
 
-  // ─── Report date columns — now driven by the SAME selectedMonth/selectedYear/dateRange ──
   const getReportDateColumns = () => {
     const parseLocal = (isoStr) => {
       const [y, m, d] = isoStr.split('-').map(Number);
@@ -1539,8 +1548,6 @@ const buildReportCell = (records = [], employee, dateKey) => {
 
   const reportDateColumns = getReportDateColumns();
 
-  // ─── Report cells now read directly from the shared `attendance` array ────
-  // ─── (the same filtered data set used by Stats/Details/Summary) ───────────
   const reportRecordsByEmployeeDate = attendance.reduce((acc, record) => {
     if (!record || !record.employee) return acc;
     const employeeId = getId(record.employee) || 'unknown';
@@ -1560,28 +1567,25 @@ const buildReportCell = (records = [], employee, dateKey) => {
       );
       const cells = reportDateColumns.reduce((acc, column) => {
         const records = reportRecordsByEmployeeDate[getId(employee)]?.[column.key] || [];
-
         const shouldSynthesizeAbsence = (
           records.length === 0
           && !column.isWeekend
           && column.key < todayStr
           && (!joinDateStr || column.key >= joinDateStr)
         );
-
         const cellRecords = shouldSynthesizeAbsence
           ? [{
-              _id: `synthetic-${getId(employee) || 'unknown'}-${column.key}`,
-              employee,
-              date: column.key,
-              checkIn: null,
-              checkOut: null,
-              workingHours: 0,
-              status: 'absent',
-              autoMarked: true,
-              _synthetic: true
-            }]
+            _id: `synthetic-${getId(employee) || 'unknown'}-${column.key}`,
+            employee,
+            date: column.key,
+            checkIn: null,
+            checkOut: null,
+            workingHours: 0,
+            status: 'absent',
+            autoMarked: true,
+            _synthetic: true
+          }]
           : records;
-
         acc[column.key] = buildReportCell(cellRecords, employee, column.key);
         return acc;
       }, {});
@@ -1589,32 +1593,208 @@ const buildReportCell = (records = [], employee, dateKey) => {
     });
 
   // ─── Export helpers ───────────────────────────────────────────────────────
-  const exportToCSV = () => {
-    const headers = ['Employee', 'Date', 'Sessions', 'Working Hours', 'Status', 'Department'];
-    const csvData = filteredAttendance.map(record => {
-      const sessionsStr = (record.sessions || []).map((s, i) =>
-        `Session ${i + 1}: ${formatTime(s.checkIn)} - ${formatTime(s.checkOut)}`
-      ).join(' | ') || '--';
-      return [
-        record.employee?.name || 'N/A',
-        formatDate(record.date),
-        sessionsStr,
-        formatWorkingHours(record.workingHours),
-        record.status || 'Unknown',
-        record.employee?.department || 'N/A',
-      ];
-    });
-    const escape = v => `"${String(v).replace(/"/g, '""')}"`;
-    const csvContent = [headers.map(escape).join(',')].concat(csvData.map(row => row.map(escape).join(','))).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `attendance-report-${selectedMonth}-${selectedYear}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+  const exportToCSV = async () => {
+  // Helper: reverse geocode with cache (same logic as LocationText)
+  const reverseGeocode = async (lat, lng) => {
+    if (lat == null || lng == null) return '';
+    const key = `loc:${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+    try {
+      const cached = sessionStorage.getItem(key);
+      if (cached) return cached;
+    } catch (e) { /* ignore */ }
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=en`
+      );
+      if (!res.ok) return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+      const data = await res.json();
+      let label = '';
+      if (data?.address) {
+        const a = data.address;
+        const parts = [];
+        const locality = a.city || a.town || a.village || a.hamlet || a.county;
+        const state = a.state || a.region || a.state_district;
+        if (locality) parts.push(locality);
+        if (state) parts.push(state);
+        if (a.country) parts.push(a.country);
+        if (parts.length > 0) label = parts.join(', ');
+      }
+      if (!label && data?.display_name) label = data.display_name;
+      if (label) {
+        try { sessionStorage.setItem(key, label); } catch (e) { /* ignore */ }
+      }
+      return label || `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+    } catch {
+      return lat != null && lng != null ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}` : '';
+    }
   };
 
+  // Helper: get GPS location string for a session side
+  const getGpsLabel = async (session, side) => {
+    const lat = side === 'in' ? session.checkInLat : session.checkOutLat;
+    const lng = side === 'in' ? session.checkInLng : session.checkOutLng;
+    if (lat != null && lng != null) return await reverseGeocode(lat, lng);
+    return '';
+  };
+
+  const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+  const headers = [
+    'Employee',
+    'Department',
+    'Date',
+    'Day',
+    'Session #',
+    'Check In Time',
+    'Check In GPS Location',
+    'Check Out Time',
+    'Check Out GPS Location',
+    'Session Hours',
+    'Total Working Hours',
+    'Office Location',
+    'Shift',
+    'Status',
+    'Permissions',
+  ];
+
+  const rows = [];
+
+  for (const record of filteredAttendance) {
+    if (!record || !record.employee) continue;
+
+    const employeeName = record.employee?.name || 'N/A';
+    const department = record.employee?.department || 'N/A';
+    const dateStr = record.date
+      ? new Date(record.date).toLocaleDateString('en-US', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        })
+      : '--';
+    const dayStr = record.date
+      ? new Date(record.date).toLocaleDateString('en-US', { weekday: 'long' })
+      : '--';
+
+    // Office location (named, same as table)
+    const officeLocation = (() => {
+      const locationName = getSelectedLocationName(record._firstRecord || record, 'in');
+      return locationName || '--';
+    })();
+
+    // Shift display
+    const shiftDisplay = record.shiftName || formatShiftDisplay(record._firstRecord || record) || '--';
+
+    // Status label
+    const statusLabel = (() => {
+      const s = String(record.status || '').toLowerCase();
+      if (s === 'present') return 'Full Day Present';
+      if (s === 'half-day') return 'Half Day Present';
+      if (s === 'working') return 'Working';
+      if (s === 'absent') {
+        if (record.absentReason === 'not-checked-out' || record.absentReason === 'not-checked-out-24h') return 'Absent (Not Checked Out)';
+        if (record.autoMarked || record._synthetic) return 'Absent (Not Checked In)';
+        return 'Absent (Admin)';
+      }
+      if (s === 'present-with-permission') return 'With Permission';
+      if (s === 'on-permission') return 'On Permission';
+      return record.status || 'Unknown';
+    })();
+
+    // Permissions
+    const recordPermissions = getPermissionsForRecord(record);
+    const permissionsStr = recordPermissions.length > 0
+      ? recordPermissions.map((p) => p.permissionType || 'Permission').join('; ')
+      : '--';
+
+    // Total hours
+    const totalHours = formatWorkingHours(record.workingHours) || '--';
+
+    const isSynthetic = Boolean(record._synthetic);
+
+    if (isSynthetic || !record.sessions || record.sessions.length === 0) {
+      // Absent / no sessions row
+      rows.push([
+        employeeName,
+        department,
+        dateStr,
+        dayStr,
+        '--',       // Session #
+        '--',       // Check In Time
+        '--',       // Check In GPS
+        '--',       // Check Out Time
+        '--',       // Check Out GPS
+        '--',       // Session Hours
+        totalHours,
+        officeLocation,
+        shiftDisplay,
+        statusLabel,
+        permissionsStr,
+      ]);
+      continue;
+    }
+
+    // One row per session
+    for (let idx = 0; idx < record.sessions.length; idx++) {
+      const session = record.sessions[idx];
+      const sessionNum = record.sessions.length > 1 ? String(idx + 1) : '--';
+
+      const checkInTime = session.checkIn
+        ? new Date(session.checkIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+        : '--';
+
+      const checkOutTime = (() => {
+        if (session.checkOut) {
+          return new Date(session.checkOut).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        }
+        if (session.checkIn) {
+          const elapsed = Date.now() - new Date(session.checkIn).getTime();
+          if (elapsed >= 24 * 60 * 60 * 1000) return 'Not checked out';
+        }
+        return '--';
+      })();
+
+      const sessionHours = session.autoCheckedOut
+        ? '0h 0m'
+        : formatWorkingHours(session.workingHours) || '--';
+
+      // GPS — use cached values first, then fetch
+      const checkInGps = await getGpsLabel(session, 'in');
+      const checkOutGps = session.checkOut ? await getGpsLabel(session, 'out') : '';
+
+      // Only put total hours and office/shift/status/permissions on the FIRST session row
+      const isFirstSession = idx === 0;
+
+      rows.push([
+        employeeName,
+        department,
+        dateStr,
+        dayStr,
+        sessionNum,
+        checkInTime,
+        checkInGps || '--',
+        checkOutTime,
+        checkOutGps || '--',
+        sessionHours,
+        isFirstSession ? totalHours : '',          // total hours only on first row
+        isFirstSession ? officeLocation : '',       // office loc only on first row
+        isFirstSession ? shiftDisplay : '',         // shift only on first row
+        isFirstSession ? statusLabel : '',          // status only on first row
+        isFirstSession ? permissionsStr : '',       // permissions only on first row
+      ]);
+    }
+  }
+
+  const csvContent = [
+    headers.map(escape).join(','),
+    ...rows.map((row) => row.map(escape).join(',')),
+  ].join('\n');
+
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `attendance-report-${selectedMonth}-${selectedYear}.csv`;
+  a.click();
+  window.URL.revokeObjectURL(url);
+};
   const escapeExcelHtml = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const cellHtml = (v, cls = '', attrs = '') => `<td class="${cls}" ${attrs}>${escapeExcelHtml(v)}</td>`;
   const headerHtml = (v, cls = '', attrs = '') => `<th class="${cls}" ${attrs}>${escapeExcelHtml(v)}</th>`;
@@ -1675,9 +1855,6 @@ const buildReportCell = (records = [], employee, dateKey) => {
 
   const overallStats = calculateOverallStats(filteredForStats);
 
-  const monthOptions = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: new Date(2000, i).toLocaleString('default', { month: 'long' }) }));
-  const yearOptions = Array.from({ length: 5 }, (_, i) => { const y = new Date().getFullYear() - 2 + i; return { value: y, label: String(y) }; });
-
   return (
     <div className="max-w-7xl mx-auto space-y-6 px-2 sm:px-4 lg:px-6">
       {/* Header */}
@@ -1696,7 +1873,7 @@ const buildReportCell = (records = [], employee, dateKey) => {
 
       <MobileNavigation />
 
-      {/* Filters — shared by ALL FOUR tabs (Stats / Summary / Details / Report) */}
+      {/* Filters */}
       <Card className="shadow-sm">
         <Card.Header>
           <Card.Title className="flex items-center">
@@ -1836,13 +2013,13 @@ const buildReportCell = (records = [], employee, dateKey) => {
         </Card>
       )}
 
-      {/* ─── Detailed Report — grouped by date, sessions in one row ─────────── */}
+      {/* ─── Detailed Report ─────────────────────────────────────────────────── */}
       {(mobileView === 'details' || !mobileView) && (
         <Card className={`${mobileView ? 'block' : 'hidden lg:block'} shadow-sm`}>
           <Card.Header>
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <Card.Title className="text-lg font-semibold text-gray-900">Detailed Report ({filteredAttendance.length} records)</Card.Title>
-              <span className="text-sm font-normal text-gray-500">Sorted by date — same-day sessions grouped</span>
+              <span className="text-sm font-normal text-gray-500">Sorted by check-in time — latest first</span>
             </div>
           </Card.Header>
           <Card.Content>
@@ -1851,9 +2028,9 @@ const buildReportCell = (records = [], employee, dateKey) => {
               <table className="min-w-full divide-y divide-gray-200 hidden lg:table">
                 <thead className="bg-gray-50">
                   <tr>
-                    {['Employee', 'Date', 'Sessions (Check In / Check Out)', 'Total Hours', 'Shift', 'Status', 'Permissions', 'Actions'].map(h => (
-                      <th key={h} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
-                    ))}
+                    {['Employee', 'Date', 'Sessions (Check In / Check Out)', 'Total Hours', 'Office Location', 'Shift', 'Status', 'Permissions', 'Actions'].map(h => (
+  <th key={h} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
+))}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -1891,28 +2068,53 @@ const buildReportCell = (records = [], employee, dateKey) => {
                             <span className="text-gray-400 text-sm">--</span>
                           ) : record.sessions.length === 1 ? (
                             <div className="space-y-1">
-                              <div className="text-sm text-gray-900">
-                                {formatTime(record.sessions[0].checkIn)} → {formatTime(record.sessions[0].checkOut)}
+                              <div className="text-sm text-gray-900 flex items-center gap-1">
+                                {formatTime(record.sessions[0].checkIn)} → {formatCheckOutTime(record.sessions[0])}
                               </div>
                               <div className="text-xs text-gray-500">
-                                {renderLocation(record.sessions[0], 'in', { includeSelectedLocation: false })}
-                                {record.sessions[0].checkOut && <> → {renderLocation(record.sessions[0], 'out')}</>}
-                              </div>
+  {renderLocation(record.sessions[0], 'in', { includeSelectedLocation: false })}
+  {record.sessions[0].checkOut
+    ? <> → {renderLocation(record.sessions[0], 'out')}</>
+    : (() => {
+        const elapsed = Date.now() - new Date(record.sessions[0].checkIn).getTime();
+        return elapsed >= 24 * 60 * 60 * 1000
+          ? <> → <span className="text-gray-400">No location</span></>
+          : null;
+      })()
+  }
+</div>
                             </div>
                           ) : (
                             <div className="space-y-2">
                               {record.sessions.map((session, idx) => (
-                                <div key={idx} className="border-l-2 border-primary-200 pl-2">
-                                  <div className="flex items-center space-x-2">
-                                    <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-1 py-0.5 rounded">#{idx + 1}</span>
-                                    <span className="text-sm text-gray-900">{formatTime(session.checkIn)} → {formatTime(session.checkOut)}</span>
-                                  </div>
-                                  <div className="text-xs text-gray-500 mt-0.5 ml-6">
-                                    {renderLocation(session, 'in', { includeSelectedLocation: false })}
-                                    {session.checkOut && <> → {renderLocation(session, 'out')}</>}
-                                  </div>
-                                </div>
-                              ))}
+  <div key={idx} className="border-l-2 border-primary-200 pl-2 mb-1">
+    <div className="flex items-start gap-1.5">
+      <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-1 py-0.5 rounded shrink-0 mt-0.5">
+        #{idx + 1}
+      </span>
+      <div className="flex flex-col gap-0.5 min-w-0">
+        <div className="text-sm text-gray-900 whitespace-nowrap">
+          {formatTime(session.checkIn)} → {formatCheckOutTime(session)}
+        </div>
+        <div className="text-xs text-gray-500">
+          {renderLocation(session, 'in', { includeSelectedLocation: false })}
+        </div>
+        <div className="text-xs text-gray-500 flex items-center gap-1">
+  <span>→</span>
+  {session.checkOut
+    ? renderLocation(session, 'out')
+    : (() => {
+        const elapsed = Date.now() - new Date(session.checkIn).getTime();
+        return elapsed >= 24 * 60 * 60 * 1000
+          ? <span className="text-gray-400">No location</span>
+          : null;
+      })()
+  }
+</div>
+      </div>
+    </div>
+  </div>
+))}
                             </div>
                           )}
                         </td>
@@ -1926,6 +2128,17 @@ const buildReportCell = (records = [], employee, dateKey) => {
                             <div className="text-xs text-gray-400">{record.sessions.length} sessions</div>
                           )}
                         </td>
+                               {/* Office Location */}
+<td className="px-6 py-4 whitespace-nowrap">
+  {isSynthetic ? (
+    <span className="text-xs text-gray-400">--</span>
+  ) : (() => {
+    const locationName = getSelectedLocationName(record._firstRecord || record, 'in');
+    return locationName
+      ? <span className="inline-flex items-center px-2 py-1 rounded-full bg-teal-100 text-teal-800 text-xs font-medium">{locationName}</span>
+      : <span className="text-xs text-gray-400">--</span>;
+  })()}
+</td>
 
                         {/* Shift */}
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1936,6 +2149,7 @@ const buildReportCell = (records = [], employee, dateKey) => {
                             </div>
                           ) : <span className="text-xs text-gray-400">--</span>}
                         </td>
+                 
 
                         {/* Status */}
                         <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(record)}</td>
@@ -2033,7 +2247,7 @@ const buildReportCell = (records = [], employee, dateKey) => {
                                 </div>
                                 <div>
                                   <div className="text-gray-500">Check Out</div>
-                                  <div className="font-medium">{formatTime(record.sessions[0].checkOut)}</div>
+                                  <div className="font-medium">{formatCheckOutTime(record.sessions[0])}</div>
                                   <div className="mt-1">{renderLocation(record.sessions[0], 'out')}</div>
                                 </div>
                               </div>
@@ -2044,7 +2258,7 @@ const buildReportCell = (records = [], employee, dateKey) => {
                                   <div key={idx} className="bg-gray-50 rounded p-2 text-sm">
                                     <div className="flex items-center space-x-2 mb-1">
                                       <span className="text-xs font-semibold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded">#{idx + 1}</span>
-                                      <span>{formatTime(session.checkIn)} → {formatTime(session.checkOut)}</span>
+                                      <span className="flex items-center gap-1">{formatTime(session.checkIn)} → {formatCheckOutTime(session)}</span>
                                     </div>
                                     <div className="text-xs text-gray-500">{renderLocation(session, 'in', { includeSelectedLocation: false })}</div>
                                   </div>
@@ -2331,14 +2545,14 @@ const buildReportCell = (records = [], employee, dateKey) => {
                     </tbody>
                   </table>
                 </div>
-               <div className="mt-4 space-y-2 text-xs text-gray-600 dark:text-gray-300">
-	<div><span className="font-bold text-green-600 dark:text-green-300">P</span> = Present (full day)</div>
-	<div><span className="font-bold text-orange-500 dark:text-orange-300">HA</span> = Half Day</div>
-	<div><span className="font-bold text-red-600 dark:text-red-300">A</span> = Absent</div>
-	<div><span className="font-bold text-yellow-600 dark:text-yellow-300">W</span> = Working (Checked in, not Checked out - Today only)</div>
-	<div><span className="font-bold text-indigo-500 dark:text-indigo-300">S</span> = Sunday (no entry expected)</div>
-	<div><span className="font-bold text-gray-400">-</span> = Incomplete / Future Date / No Data</div>
-</div>
+                <div className="mt-4 space-y-2 text-xs text-gray-600 dark:text-gray-300">
+                  <div><span className="font-bold text-green-600 dark:text-green-300">P</span> = Present (full day)</div>
+                  <div><span className="font-bold text-orange-500 dark:text-orange-300">HA</span> = Half Day</div>
+                  <div><span className="font-bold text-red-600 dark:text-red-300">A</span> = Absent</div>
+                  <div><span className="font-bold text-yellow-600 dark:text-yellow-300">W</span> = Working (Checked in, not Checked out - Today only)</div>
+                  <div><span className="font-bold text-indigo-500 dark:text-indigo-300">S</span> = Sunday (no entry expected)</div>
+                  <div><span className="font-bold text-gray-400">-</span> = Incomplete / Future Date / No Data</div>
+                </div>
               </div>
             )}
 

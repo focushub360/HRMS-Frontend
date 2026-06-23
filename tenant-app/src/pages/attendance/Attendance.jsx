@@ -345,6 +345,31 @@ const Attendance = () => {
     if (value.employeeId) return String(value.employeeId);
     return undefined;
   };
+  // ─── GPS-only location (skips office name, shows reverse-geocoded coords) ──
+const renderLocationGpsOnly = (record, side) => {
+  if (!record) return <span className="text-xs text-gray-400">Location unavailable</span>;
+
+  const extractCoords = (source, preference) => {
+    if (!source) return null;
+    const candidates = preference === 'out'
+      ? [{ lat: source.checkOutLat, lng: source.checkOutLng }, { lat: source.checkInLat, lng: source.checkInLng }]
+      : [{ lat: source.checkInLat, lng: source.checkInLng }, { lat: source.checkOutLat, lng: source.checkOutLng }];
+    for (const c of candidates) {
+      if (c && c.lat != null && c.lng != null) return { lat: Number(c.lat), lng: Number(c.lng) };
+    }
+    return null;
+  };
+
+  const coords = extractCoords(record, side);
+  if (coords) {
+    const q = `${coords.lat},${coords.lng}`;
+    const mapsUrl = `https://www.google.com/maps?q=${encodeURIComponent(q)}`;
+    const coordsText = `${Number(coords.lat).toFixed(5)}, ${Number(coords.lng).toFixed(5)}`;
+    return <LocationText coords={coords} coordsText={coordsText} mapsUrl={mapsUrl} />;
+  }
+
+  return <span className="text-xs text-gray-400">Location unavailable</span>;
+};
 
   const renderLocation = (record, side) => {
     if (!record) return <span className="text-xs text-gray-400">Location unavailable</span>;
@@ -1071,6 +1096,7 @@ const Attendance = () => {
                   <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Day</th>
                   <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Check In / Check Out</th>
                   <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Working Hours</th>
+                  <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Office Location</th>
                   <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Shift</th>
                   <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
                 </tr>
@@ -1082,55 +1108,100 @@ const Attendance = () => {
                     <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       {new Date(record.date).toLocaleDateString('en-US', { weekday: 'short' })}
                     </td>
-                    <td className="px-3 sm:px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                      {!record._synthetic && record.sessions && record.sessions.length > 0 ? (
-                        <div className="space-y-2">
-                          {record.sessions.length === 1 ? (
-                            <div className="flex flex-col space-y-1">
-                              <div className="text-sm">
-                                {formatTime(record.sessions[0].checkIn)}
-                                {record.sessions[0].autoCheckedOut
-                                  ? <span className="text-red-500 text-xs ml-1">( Checkout -24h)</span>
-                                  : record.sessions[0].checkOut
-                                    ? ` - ${formatTime(record.sessions[0].checkOut)}`
-                                    : <span className="text-yellow-600 text-xs ml-1">(Working)</span>}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {renderLocation(record.sessions[0], 'in')}
-                                {!record.sessions[0].autoCheckedOut && record.sessions[0].checkOut && (
-                                  <> → {renderLocation(record.sessions[0], 'out')}</>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            record.sessions.map((session, idx) => (
-                              <div key={idx} className="flex flex-col space-y-1">
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-xs font-semibold text-gray-500">Time {idx + 1}:</span>
-                                  <span className="text-sm">
-                                    {formatTime(session.checkIn)}
-                                    {session.autoCheckedOut
-                                      ? <span className="text-red-500 text-xs ml-1">(Auto Checkout- 24h)</span>
-                                      : session.checkOut
-                                        ? ` - ${formatTime(session.checkOut)}`
-                                        : <span className="text-yellow-600 text-xs ml-1">(Working)</span>}
-                                  </span>
-                                </div>
-                                <div className="ml-12 text-xs text-gray-500">
-                                  {renderLocation(session, 'in')}
-                                  {!session.autoCheckedOut && session.checkOut && (
-                                    <> → {renderLocation(session, 'out')}</>
-                                  )}
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">--</span>
-                      )}
-                    </td>
+                   <td className="px-3 sm:px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
+  {!record._synthetic && record.sessions && record.sessions.length > 0 ? (
+    <div className="space-y-2">
+      {record.sessions.length === 1 ? (
+        <div className="space-y-1">
+          <div className="text-sm text-gray-900 dark:text-gray-100 flex items-center gap-1">
+            <span>{formatTime(record.sessions[0].checkIn)}</span>
+            <span>→</span>
+            {record.sessions[0].autoCheckedOut
+              ? <span className="text-red-500 text-xs font-medium whitespace-nowrap">Not checked out</span>
+              : record.sessions[0].checkOut
+                ? <span>{formatTime(record.sessions[0].checkOut)}</span>
+                : <span className="text-gray-400">--:--</span>}
+          </div>
+          <div className="text-xs text-gray-500">
+            {renderLocationGpsOnly(record.sessions[0], 'in')}
+            {record.sessions[0].checkOut
+              ? <> → {renderLocationGpsOnly(record.sessions[0], 'out')}</>
+              : (() => {
+                  const elapsed = Date.now() - new Date(record.sessions[0].checkIn).getTime();
+                  return elapsed >= 24 * 60 * 60 * 1000
+                    ? <> → <span className="text-gray-400">No location</span></>
+                    : null;
+                })()
+            }
+          </div>
+        </div>
+      ) : (
+        record.sessions.map((session, idx) => (
+          <div key={idx} className="border-l-2 border-primary-200 pl-2 mb-1">
+            <div className="flex items-start gap-1.5">
+              <span className="text-xs font-semibold text-gray-500 bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded shrink-0 mt-0.5">
+                #{idx + 1}
+              </span>
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <div className="text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap flex items-center gap-1">
+                  <span>{formatTime(session.checkIn)}</span>
+                  <span>→</span>
+                  {session.autoCheckedOut
+                    ? <span className="text-red-500 text-xs font-medium whitespace-nowrap">Not checked out</span>
+                    : session.checkOut
+                      ? <span>{formatTime(session.checkOut)}</span>
+                      : <span className="text-gray-400">--:--</span>}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {renderLocationGpsOnly(session, 'in')}
+                </div>
+                {session.checkOut
+                  ? <div className="text-xs text-gray-500 flex items-center gap-1">
+                      <span>→</span>
+                      {renderLocationGpsOnly(session, 'out')}
+                    </div>
+                  : (() => {
+                      const elapsed = Date.now() - new Date(session.checkIn).getTime();
+                      return elapsed >= 24 * 60 * 60 * 1000
+                        ? <div className="text-xs text-gray-400 flex items-center gap-1">
+                            <span>→</span>
+                            <span>No location</span>
+                          </div>
+                        : null;
+                    })()
+                }
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  ) : (
+    record._synthetic || record.status === 'absent'
+      ? <span className="text-xs font-medium text-red-500">Not Checked In</span>
+      : <span className="text-gray-400">--</span>
+  )}
+</td>
                     <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{formatWorkingHours(record.workingHours)}</td>
+                    <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm">
+  {(() => {
+    if (!record.sessions || record.sessions.length === 0) return <span className="text-gray-400">--</span>;
+    // Try checkInLocation from first session or record
+    const firstSession = record.sessions[0];
+    const locationObj = firstSession?.checkInLocation || record.sessions.map(s => s.checkInLocation).find(Boolean);
+    if (locationObj) {
+      const name = typeof locationObj === 'string'
+        ? locationObj
+        : locationObj.name || locationObj.locationName || locationObj.address || '';
+      if (name) return (
+        <span className="inline-flex items-center px-2 py-1 rounded-full bg-teal-100 text-teal-800 text-xs font-medium">
+          {name}
+        </span>
+      );
+    }
+    return <span className="text-gray-400">--</span>;
+  })()}
+</td>
                     <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm">
                       {record.shiftName ? (
                         <span className="inline-flex items-center px-2 py-1 rounded-full bg-purple-100 text-purple-800 text-xs">

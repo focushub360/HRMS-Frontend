@@ -15,9 +15,58 @@ import AddIcon from '@mui/icons-material/Add';
 import PersonIcon from '@mui/icons-material/Person';
 import PhoneDisabledIcon from '@mui/icons-material/PhoneDisabled';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 
 // Import the EmployeePassword component
 import EmployeePassword from './EmployeePasswordManagement';
+
+// ============================================================
+// Custom Select Dropdown
+// ============================================================
+const CustomSelect = ({ value, onChange, options }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = React.useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find(opt => String(opt.value) === String(value));
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+      >
+        <span className="truncate">{selectedOption ? selectedOption.label : 'Select...'}</span>
+        <ArrowDropDownIcon className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ml-2 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg left-0 max-h-60 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+          {options.map((opt) => (
+            <div
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setIsOpen(false); }}
+              className={`px-3 py-2 text-sm cursor-pointer rounded-md transition-colors ${
+                String(opt.value) === String(value)
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900 dark:text-primary-100 font-medium'
+                  : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const EmployeeList = () => {
   const [employees, setEmployees] = useState([]);
@@ -35,8 +84,22 @@ const EmployeeList = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [mobileOverrides, setMobileOverrides] = useState({});
+  const [filter, setFilter] = useState('all');
   
   const navigate = useNavigate();
+
+  const filterOptions = [
+    { value: 'all',      label: 'All Employees' },
+    { value: 'active',   label: 'Active Employees' },
+    { value: 'inactive', label: 'Inactive Employees' },
+  ];
+
+  const filteredEmployees = employees.filter(e => {
+    if (filter === 'all') return true;
+    if (filter === 'active') return e.isActive;
+    if (filter === 'inactive') return !e.isActive;
+    return true;
+  });
 
   // ── all logic helpers unchanged ──────────────────────────────────────────
   const extractEmployee = (raw) => {
@@ -313,13 +376,18 @@ const EmployeeList = () => {
             Manage your team members • {employees.length} {employees.length === 1 ? 'employee' : 'employees'} total
           </p>
         </div>
-        <Button
-          onClick={() => navigate('/employees/add')}
-          className="whitespace-nowrap w-full sm:w-auto"
-        >
-          <AddIcon className="w-4 h-4 mr-2" />
-          Add Employee
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="w-full sm:w-48">
+            <CustomSelect value={filter} onChange={setFilter} options={filterOptions} />
+          </div>
+          <Button
+            onClick={() => navigate('/employees/add')}
+            className="whitespace-nowrap w-full sm:w-auto flex items-center justify-center space-x-2"
+          >
+            <AddIcon className="w-4 h-4" />
+            <span>Add Employee</span>
+          </Button>
+        </div>
       </div>
 
       {/* Success Message */}
@@ -342,15 +410,38 @@ const EmployeeList = () => {
         </div>
       )}
 
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6">
+        {[
+          { label: 'Total',    color: 'text-blue-600',  key: 'total'    },
+          { label: 'Active',   color: 'text-green-600', key: 'active'   },
+          { label: 'Inactive', color: 'text-red-600',   key: 'inactive' },
+        ].map(({ label, color, key }) => {
+          const count = key === 'total' 
+            ? employees.length 
+            : employees.filter(e => key === 'active' ? e.isActive : !e.isActive).length;
+          return (
+            <Card key={key} className="!p-0">
+              <div className="text-center p-2 sm:p-4 md:p-6">
+                <div className={`text-lg sm:text-xl md:text-2xl font-bold ${color} mb-0.5 sm:mb-2`}>
+                  {count}
+                </div>
+                <p className="text-[11px] sm:text-sm font-medium text-gray-600 dark:text-gray-300">{label}</p>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
       {/* Employees Table */}
       <Card>
         <Card.Header className="border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <Card.Title className="text-base font-semibold text-gray-900 dark:text-gray-100">
-              All Employees
+              {filter === 'all' ? 'All Employees' : filter === 'active' ? 'Active Employees' : 'Inactive Employees'}
             </Card.Title>
             <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700">
-              {employees.length} {employees.length === 1 ? 'record' : 'records'}
+              {filteredEmployees.length} {filteredEmployees.length === 1 ? 'record' : 'records'}
             </span>
           </div>
         </Card.Header>
@@ -370,7 +461,7 @@ const EmployeeList = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {employees.map((employee) => (
+                {filteredEmployees.map((employee) => (
                   <tr
                     key={employee._id || employee.id}
                     className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-150"
@@ -506,19 +597,23 @@ const EmployeeList = () => {
               </tbody>
             </table>
 
-            {employees.length === 0 && (
+            {filteredEmployees.length === 0 && (
               <div className="text-center py-16">
                 <div className="mx-auto w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
                   <PersonIcon className="w-10 h-10 text-gray-400 dark:text-gray-500" />
                 </div>
                 <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 mb-2">No employees found</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-sm mx-auto">
-                  Get started by adding your first team member to the system.
+                  {filter === 'all'
+                    ? 'Get started by adding your first team member to the system.'
+                    : `No ${filter} employees found. Try changing the filter.`}
                 </p>
-                <Button onClick={() => navigate('/employees/add')}>
-                  <AddIcon className="w-4 h-4 mr-2" />
-                  Add First Employee
-                </Button>
+                {filter === 'all' && (
+                  <Button onClick={() => navigate('/employees/add')}>
+                    <AddIcon className="w-4 h-4 mr-2" />
+                    Add First Employee
+                  </Button>
+                )}
               </div>
             )}
           </div>

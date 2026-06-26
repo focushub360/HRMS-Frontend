@@ -74,16 +74,28 @@ const CustomSelect = ({ value, onChange, options, required = false, disabled = f
 // ============================================================
 const CustomDatePicker = ({ value, onChange, max }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [isMonthOpen, setIsMonthOpen] = useState(false);
   const containerRef = useRef(null);
 
-  const [viewDate, setViewDate] = useState(() => {
+  const [viewMonth, setViewMonth] = useState(() => {
     const base = value ? new Date(`${value}T00:00:00`) : new Date();
-    return new Date(base.getFullYear(), base.getMonth(), 1);
+    return base.getMonth();
+  });
+  const [viewYear, setViewYear] = useState(() => {
+    const base = value ? new Date(`${value}T00:00:00`) : new Date();
+    return base.getFullYear();
+  });
+  const [yearInput, setYearInput] = useState(() => {
+    const base = value ? new Date(`${value}T00:00:00`) : new Date();
+    return String(base.getFullYear());
   });
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+        setIsMonthOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -102,10 +114,8 @@ const CustomDatePicker = ({ value, onChange, max }) => {
   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const weekDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-  const year = viewDate.getFullYear();
-  const month = viewDate.getMonth();
-  const startOffset = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startOffset = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
   const cells = [];
   for (let i = 0; i < startOffset; i++) cells.push(null);
@@ -118,18 +128,38 @@ const CustomDatePicker = ({ value, onChange, max }) => {
     return d.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
   };
 
+  const handleYearChange = (val) => {
+    setYearInput(val);
+    const y = parseInt(val);
+    if (val.length === 4 && y >= 1900 && y <= new Date().getFullYear()) {
+      setViewYear(y);
+    }
+  };
+
   const handleSelectDay = (day) => {
-    const picked = new Date(year, month, day);
+    const picked = new Date(viewYear, viewMonth, day);
     if (maxDate && picked > maxDate) return;
     onChange(toDateString(picked));
     setIsOpen(false);
   };
 
+  const handleOpen = () => {
+    if (!isOpen && value) {
+      const d = new Date(`${value}T00:00:00`);
+      setViewMonth(d.getMonth());
+      setViewYear(d.getFullYear());
+      setYearInput(String(d.getFullYear()));
+    }
+    setIsOpen(!isOpen);
+    setIsMonthOpen(false);
+  };
+
   return (
     <div className="relative w-full" ref={containerRef}>
+      {/* Trigger button */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleOpen}
         className="w-full flex items-center justify-between px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
       >
         <span className="flex items-center gap-2">
@@ -143,24 +173,58 @@ const CustomDatePicker = ({ value, onChange, max }) => {
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-full p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg left-0 max-h-[85vh] overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-          {/* Month navigation */}
-          <div className="flex items-center justify-between mb-2">
-            <button type="button" onClick={() => setViewDate(new Date(year, month - 1, 1))}
-              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
-              <ChevronLeftIcon style={{ fontSize: 20 }} />
-            </button>
-            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {monthNames[month]} {year}
-            </span>
-            <button type="button" onClick={() => setViewDate(new Date(year, month + 1, 1))}
-              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
-              <ChevronRightIcon style={{ fontSize: 20 }} />
-            </button>
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg left-0">
+
+          {/* Month + Year controls */}
+          <div className="flex items-center gap-2 p-2.5 border-b border-gray-200 dark:border-gray-700">
+
+            {/* Custom month dropdown */}
+            <div className="relative flex-1">
+              <button
+                type="button"
+                onClick={() => setIsMonthOpen(prev => !prev)}
+                className="w-full flex items-center justify-between px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary-500"
+              >
+                <span className="text-sm truncate">{monthNames[viewMonth]}</span>
+                <ArrowDropDownIcon
+                  className={`text-gray-400 flex-shrink-0 ml-1 transition-transform ${isMonthOpen ? 'rotate-180' : ''}`}
+                  style={{ fontSize: 18 }}
+                />
+              </button>
+
+              {isMonthOpen && (
+                <div className="absolute z-10 mt-1 w-full p-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+                  {monthNames.map((m, i) => (
+                    <div
+                      key={m}
+                      onClick={() => { setViewMonth(i); setIsMonthOpen(false); }}
+                      className={`px-3 py-1.5 text-sm cursor-pointer rounded-md transition-colors ${
+                        i === viewMonth
+                          ? 'bg-primary-50 text-primary-700 dark:bg-primary-900 dark:text-primary-100 font-medium'
+                          : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {m}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Year input */}
+            <input
+              type="number"
+              value={yearInput}
+              onChange={(e) => handleYearChange(e.target.value)}
+              min="1900"
+              max={new Date().getFullYear()}
+              className="w-20 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-primary-500 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              placeholder="Year"
+            />
           </div>
 
-          {/* Weekday header — Sunday red */}
-          <div className="grid grid-cols-7 gap-1 mb-1">
+          {/* Weekday header */}
+          <div className="grid grid-cols-7 gap-1 px-3 pt-2 pb-1">
             {weekDays.map((wd, idx) => (
               <div key={wd} className={`text-center text-xs font-medium py-1 ${idx === 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
                 {wd}
@@ -169,10 +233,10 @@ const CustomDatePicker = ({ value, onChange, max }) => {
           </div>
 
           {/* Day grid */}
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-1 px-3 pb-3">
             {cells.map((day, idx) => {
               if (day === null) return <div key={`empty-${idx}`} />;
-              const cellDate = new Date(year, month, day);
+              const cellDate = new Date(viewYear, viewMonth, day);
               const isSunday = cellDate.getDay() === 0;
               const isDisabled = maxDate ? cellDate > maxDate : false;
               const isSelected = selectedDate &&
@@ -182,10 +246,10 @@ const CustomDatePicker = ({ value, onChange, max }) => {
               const isToday = cellDate.getTime() === today.getTime();
 
               let classes = 'text-center text-sm py-1.5 rounded-md cursor-pointer transition-colors ';
-              if (isDisabled)        classes += 'text-gray-300 dark:text-gray-600 cursor-not-allowed ';
-              else if (isSelected)   classes += 'bg-primary-500 text-white dark:bg-primary-600 font-semibold ';
-              else if (isSunday)     classes += 'text-red-500 dark:text-red-400 font-medium hover:bg-red-50 dark:hover:bg-red-900 ';
-              else                   classes += 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 ';
+              if (isDisabled)      classes += 'text-gray-300 dark:text-gray-600 cursor-not-allowed ';
+              else if (isSelected) classes += 'bg-primary-500 text-white dark:bg-primary-600 font-semibold ';
+              else if (isSunday)   classes += 'text-red-500 dark:text-red-400 font-medium hover:bg-red-50 dark:hover:bg-red-900 ';
+              else                 classes += 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 ';
               if (isToday && !isSelected) classes += 'ring-1 ring-primary-400 ';
 
               return (
@@ -200,7 +264,6 @@ const CustomDatePicker = ({ value, onChange, max }) => {
     </div>
   );
 };
-
 // ============================================================
 // EmployeeForm
 // ============================================================

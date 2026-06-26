@@ -1,6 +1,3 @@
-/* eslint-disable no-unused-vars */
-/* eslint-disable no-constant-binary-expression */
-//employeeDashboard.jsx
 import React, { useState, useEffect } from 'react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -100,6 +97,204 @@ const QuickActionCard = ({ title, description, icon, color, onClick, buttonText 
   </Card>
 );
 
+// ─── Local stat helpers ────────────────────────────────────────────────────────
+
+const getLocalDateStr = (date) => {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return null;
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const processRecords = (records) => {
+  if (!Array.isArray(records)) return [];
+  const now = Date.now();
+  const twentyFourHours = 24 * 60 * 60 * 1000;
+  return records.map(record => {
+    if (record.checkIn && !record.checkOut) {
+      const checkInTime = new Date(record.checkIn).getTime();
+      if (!isNaN(checkInTime) && (now - checkInTime >= twentyFourHours)) {
+        return {
+          ...record,
+          autoCheckedOut: true,
+          status: 'absent',
+          absentReason: 'not-checked-out',
+          workingHours: 0,
+        };
+      }
+    }
+    return record;
+  });
+};
+
+const groupByDate = (records) => {
+  if (!Array.isArray(records)) return [];
+  const byDate = new Map();
+
+  for (const record of records) {
+    if (!record) continue;
+    const dateStr = getLocalDateStr(record.date || record.checkIn);
+    if (!dateStr) continue;
+
+    if (!byDate.has(dateStr)) {
+      byDate.set(dateStr, {
+        _id: `grouped-${dateStr}`,
+        date: record.date || record.checkIn,
+        sessions: [],
+        status: record.status,
+        shiftName: record.shiftName,
+        shiftInfo: record.shiftInfo,
+        _synthetic: record._synthetic,
+        autoCheckedOut: record.autoCheckedOut,
+        autoMarked: record.autoMarked,
+        absentReason: record.absentReason,
+      });
+    }
+
+    const grouped = byDate.get(dateStr);
+
+    if (record.checkIn || record.checkOut) {
+      grouped.sessions.push({
+        checkIn: record.checkIn,
+        checkOut: record.checkOut,
+        workingHours: record.workingHours,
+        checkInLat: record.checkInLat,
+        checkInLng: record.checkInLng,
+        checkOutLat: record.checkOutLat,
+        checkOutLng: record.checkOutLng,
+        checkInPlace: record.checkInPlace,
+        checkOutPlace: record.checkOutPlace,
+        checkInLocation: record.checkInLocation,
+        checkOutLocation: record.checkOutLocation,
+        autoCheckedOut: record.autoCheckedOut,
+      });
+    }
+
+    if (record.autoMarked) grouped.autoMarked = true;
+    if (record.absentReason) grouped.absentReason = record.absentReason;
+
+    if (record.autoCheckedOut) {
+      if (!grouped.status || grouped.status === 'absent') {
+        grouped.status = 'absent';
+        grouped.autoCheckedOut = true;
+        grouped.absentReason = record.absentReason || 'not-checked-out';
+      }
+    } else if (record.status && record.status !== 'absent') {
+      grouped.status = record.status;
+      grouped.autoCheckedOut = false;
+    }
+    if (record.shiftName && !grouped.shiftName) grouped.shiftName = record.shiftName;
+    if (record.shiftInfo && !grouped.shiftInfo) grouped.shiftInfo = record.shiftInfo;
+  }
+
+  const result = Array.from(byDate.values()).map((grouped) => {
+    const totalHours = grouped.sessions.reduce((sum, session) => {
+      if (session.autoCheckedOut) return sum;
+      return sum + (Number(session.workingHours) || 0);
+    }, 0);
+
+    grouped.sessions.sort((a, b) => {
+      const timeA = a.checkIn ? new Date(a.checkIn).getTime() : 0;
+      const timeB = b.checkIn ? new Date(b.checkIn).getTime() : 0;
+      return timeA - timeB;
+    });
+
+    const hasValidSession = grouped.sessions.some(s => !s.autoCheckedOut);
+    const hasOpenSession = grouped.sessions.some(s => s.checkIn && !s.checkOut && !s.autoCheckedOut);
+
+    if (hasOpenSession) {
+      grouped.status = 'working';
+      grouped.autoCheckedOut = false;
+    } else if (hasValidSession && totalHours > 0 && grouped.status !== 'present-with-permission' && grouped.status !== 'on-permission') {
+      if (totalHours > 4.5) {
+        grouped.status = 'present';
+      } else {
+        grouped.status = 'half-day';
+      }
+      grouped.autoCheckedOut = false;
+    }
+
+    return { ...grouped, workingHours: totalHours };
+  });
+
+  return result;
+};
+
+/**
+ * Calculates presentDays, halfDays, fullDays, totalWorkingHours, and averageHours locally.
+ *
+ * Rules (mirrors attendance page calculateStats exactly):
+ * - Today is SKIPPED entirely if the employee is still checked in
+ *   (status === 'working' OR any session has checkIn but no checkOut).
+ * - Today IS counted once ALL sessions are checked out (status becomes 'present' or 'half-day').
+ * - Checking in again on the same day after a completed session keeps the same count
+ *   because the day flips back to 'working' and gets skipped again.
+ * - presentDays = fullDays + halfDays (never incremented on check-in alone).
+ */
+const calculateLocalMonthStats = (attendanceList, month, year) => {
+  const todayStr = getLocalDateStr(new Date());
+
+  const filtered = (attendanceList || []).filter((a) => {
+    const dateStr = getLocalDateStr(a.date);
+    if (!dateStr) return false;
+    const parts = dateStr.split('-');
+    return parseInt(parts[0], 10) === year && parseInt(parts[1], 10) === month;
+  });
+
+  let halfDays = 0;
+  let fullDays = 0;
+
+  filtered.forEach((a) => {
+    const isToday = getLocalDateStr(a.date) === todayStr;
+
+    if (isToday) {
+      // Skip today completely if still checked in — matches attendance page logic exactly.
+      // status === 'working' is set by groupByDate when any session has no checkOut.
+      // The sessions check is a belt-and-suspenders fallback in case status wasn't set.
+      const hasOpenSession = a.sessions && a.sessions.some(
+        (s) => s.checkIn && !s.checkOut && !s.autoCheckedOut
+      );
+      if (a.status === 'working' || hasOpenSession) return;
+    }
+
+    if (a.status === 'half-day') {
+      halfDays++;
+    } else if (a.status === 'present' || a.status === 'present-with-permission') {
+      fullDays++;
+    }
+  });
+
+  const presentDays = halfDays + fullDays;
+
+  const totalWorkingHours = filtered.reduce((sum, record) => {
+    const isToday = getLocalDateStr(record.date) === todayStr;
+    if (isToday) {
+      // For today: only sum completed sessions (checked-out ones)
+      const completedHours = (record.sessions || [])
+        .filter((s) => s.checkOut && !s.autoCheckedOut)
+        .reduce((s, session) => s + (Number(session.workingHours) || 0), 0);
+      return sum + completedHours;
+    }
+    return sum + (Number(record.workingHours) || 0);
+  }, 0);
+
+  const averageHours = presentDays > 0
+    ? Number((totalWorkingHours / presentDays).toFixed(1))
+    : 0;
+
+  return {
+    presentDays,
+    halfDays,
+    fullDays,
+    totalWorkingHours: Number(totalWorkingHours.toFixed(1)),
+    averageHours,
+  };
+};
+
+// ─── Main Component ────────────────────────────────────────────────────────────
+
 const EmployeeDashboard = () => {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
@@ -141,6 +336,15 @@ const EmployeeDashboard = () => {
   const [dailyUpdateSubmitted, setDailyUpdateSubmitted] = useState(false);
   const [checkingDailyUpdate, setCheckingDailyUpdate] = useState(false);
 
+  // Local computed monthly stats — single source of truth for ALL stat cards
+  const [localMonthStats, setLocalMonthStats] = useState({
+    presentDays: 0,
+    halfDays: 0,
+    fullDays: 0,
+    totalWorkingHours: 0,
+    averageHours: 0,
+  });
+
   useEffect(() => {
     loadDailyUpdateStatus();
   }, []);
@@ -172,9 +376,7 @@ const EmployeeDashboard = () => {
   // Load tenant locations
   const loadLocations = async () => {
     try {
-      console.log('ðŸ”„ Loading tenant locations...');
       const response = await locationService.getAll();
-      console.log('âœ… Tenant locations loaded:', response);
       setLocations(response || []);
       if (response && response.length > 0) {
         setSelectedLocationId(response[0]._id);
@@ -189,15 +391,8 @@ const EmployeeDashboard = () => {
   const loadTodayShifts = async () => {
     setLoadingShifts(true);
     try {
-      console.log('ðŸ”„ Loading today shifts...');
-
-      // Admin-created shifts for this tenant.
-      // This dropdown should show ALL tenant shifts that are active for "today".
-      // Backend endpoint: GET /api/shifts/today
       const response = await shiftService.getTodayShifts();
-      console.log('âœ… Today shifts response:', response);
 
-      // Expected backend: { success: true, data: { todayShifts: [...] } }
       const todayShiftsFromApi = response?.data?.data?.todayShifts
         || response?.data?.todayShifts
         || response?.todayShifts;
@@ -207,8 +402,6 @@ const EmployeeDashboard = () => {
           ? response.data.todayShifts
           : [];
 
-      // Ensure dropdown uses the same data shape for both the overview card + modal.
-      // We only want name/startTime/endTime/_id plus the computed flags (status/canCheckIn).
       const normalized = list.map((s) => ({
         _id: s._id || s.id || s._doc?._id,
         name: s.name ?? s.displayName ?? 'Shift',
@@ -225,16 +418,13 @@ const EmployeeDashboard = () => {
         workingHours: s.workingHours
       })).filter((shift) => shift._id);
 
-      console.log('âœ… Resolved todayShifts length:', normalized.length, normalized);
       setTodayShifts(normalized);
 
     } catch {
-      // Keep UI resilient if shifts endpoint fails
       setTodayShifts([]);
     } finally {
       setLoadingShifts(false);
     }
-
   };
 
   const calculateLiveHours = (checkInTime) => {
@@ -295,16 +485,18 @@ const EmployeeDashboard = () => {
     }
   };
 
-
   const loadDashboardData = async () => {
     try {
       const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+
       const [dashboardData, myAttendance, currentStatus] = await Promise.all([
         dashboardService.getEmployeeDashboard(),
-        attendanceService.getMyAttendance(now.getMonth() + 1, now.getFullYear()),
+        attendanceService.getMyAttendance(currentMonth, currentYear),
         attendanceService.getStatus().catch(() => null)
       ]);
-      console.log('Dashboard data received:', dashboardData);
+
       if (currentStatus) {
         setAttendanceStatus({
           isCheckedIn: Boolean(currentStatus?.activeSession || currentStatus?.isCheckedIn),
@@ -316,8 +508,19 @@ const EmployeeDashboard = () => {
           checkInTime: currentStatus?.checkInTime || currentStatus?.activeSession?.checkIn || null
         });
       }
+
       const attendanceList = Array.isArray(myAttendance) ? myAttendance : [];
       setAttendanceRecords(attendanceList);
+
+      // ── Local stat calculation ─────────────────────────────────────────────
+      // Process and group exactly like the attendance page does.
+      // calculateLocalMonthStats now computes presentDays locally so we never
+      // rely on the backend value, which increments on check-in (wrong behaviour).
+      const processedList = processRecords(attendanceList);
+      const groupedList = groupByDate(processedList);
+      const localStats = calculateLocalMonthStats(groupedList, currentMonth, currentYear);
+      setLocalMonthStats(localStats);
+      // ──────────────────────────────────────────────────────────────────────
 
       const hasCheckoutValue = (value) => value !== undefined && value !== null && value !== '';
       const getAttendanceDateKey = (record) => new Date(record?.date || record?.checkIn).toDateString();
@@ -330,12 +533,15 @@ const EmployeeDashboard = () => {
 
       setData({
         todaysAttendance: activeTodayRecord || latestTodayRecord || dashboardData.todaysAttendance || null,
-        monthlyStats: dashboardData.monthlyStats || {
-          presentDays: 0,
-          halfDays: 0,
-          totalWorkingHours: 0,
-          averageHours: 0
+        // ── monthlyStats: ALL values now come from local calculation ──────────
+        // presentDays is no longer taken from the backend to avoid the +1-on-checkin bug.
+        monthlyStats: {
+          presentDays: localStats.presentDays,
+          halfDays: localStats.halfDays,
+          totalWorkingHours: localStats.totalWorkingHours,
+          averageHours: localStats.averageHours,
         },
+        // ─────────────────────────────────────────────────────────────────────
         currentPayroll: dashboardData.currentPayroll,
         upcomingLeaves: dashboardData.upcomingLeaves || []
       });
@@ -453,7 +659,6 @@ const EmployeeDashboard = () => {
     });
   };
 
-  // Intercept check-in to request location first
   const triggerCheckIn = async (shiftId = null, shiftName = null) => {
     setPendingCheckInParams({ shiftId, shiftName });
     if (locations && locations.length > 0) {
@@ -465,7 +670,6 @@ const EmployeeDashboard = () => {
     await loadTodayShifts();
   };
 
-  // Check-in for a specific shift
   const handleCheckIn = async (shiftId = null, shiftName = null, locationId = null) => {
     setChecking(true);
     setCheckingStatus('locating');
@@ -481,28 +685,19 @@ const EmployeeDashboard = () => {
             checkInLng: pos.coords.longitude,
             checkInAccuracy: pos.coords.accuracy,
           };
-          console.log('ðŸ“ Location obtained:', payload);
         } catch (geoErr) {
           console.warn('Geolocation failed:', geoErr);
         }
       }
 
-      if (shiftId) {
-        payload.shiftId = shiftId;
-      }
-
-      if (locationId) {
-        payload.checkInLocation = locationId;
-      }
+      if (shiftId) payload.shiftId = shiftId;
+      if (locationId) payload.checkInLocation = locationId;
 
       setCheckingStatus('submitting');
       const response = await attendanceService.checkIn(payload);
       setIsCheckInModalOpen(false);
       setLiveWorkingHours(0);
-      console.log('âœ… Check-in response:', response);
 
-      // Refresh all data
-      // Show success message with working hours if available
       const workingHours = response?.data?.workingHours || response?.workingHours || data?.todaysAttendance?.workingHours;
       const shiftMessage = shiftName ? ` for ${shiftName} shift` : '';
       const hoursMessage = workingHours ? ` You've worked ${formatWorkingHours(workingHours)} so far.` : '';
@@ -518,7 +713,6 @@ const EmployeeDashboard = () => {
     }
   };
 
-  // Check-out from current active shift
   const handleCheckOut = async () => {
     setChecking(true);
     setCheckingStatus('locating');
@@ -548,7 +742,6 @@ const EmployeeDashboard = () => {
 
       setLiveWorkingHours(0);
 
-      // Calculate working hours from response or data
       const workingHours = response?.workingHours || response?.data?.workingHours || data?.todaysAttendance?.workingHours;
       const hoursMessage = workingHours ? ` Total working hours: ${formatWorkingHours(workingHours)}.` : '';
       showToast(` Check-out successful!${hoursMessage} Have a great day!`, 'success');
@@ -563,7 +756,6 @@ const EmployeeDashboard = () => {
     }
   };
 
-  // Gate checkout behind the daily update submission
   const handleCheckOutClick = async () => {
     setCheckingDailyUpdate(true);
     try {
@@ -576,7 +768,6 @@ const EmployeeDashboard = () => {
       }
     } catch (error) {
       console.error('Failed to check daily update status:', error);
-      // Fail open with a warning so the user isn't blocked by a backend issue
       setDailyUpdateRequired(true);
       setDailyUpdateModalOpen(true);
     } finally {
@@ -949,7 +1140,6 @@ const EmployeeDashboard = () => {
 
       </div>
 
-      {/* Rest of your existing components remain the same */}
       {/* Permission Status Card */}
       <Card>
         <Card.Header className="border-b border-gray-200 pb-4">
@@ -983,11 +1173,12 @@ const EmployeeDashboard = () => {
         </Card.Content>
       </Card>
 
-      {/* Monthly Performance & Quick Actions */}
+      {/* Monthly Performance Stats */}
+      {/* ALL four stat cards now use localMonthStats — no backend values */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <StatCard
           title="Present Days"
-          value={data?.monthlyStats?.presentDays || 0}
+          value={localMonthStats.presentDays}
           subtitle="This month"
           icon={<EventAvailableIcon className="w-6 h-6" />}
           color="bg-primary-50 text-primary-600"
@@ -995,7 +1186,7 @@ const EmployeeDashboard = () => {
         />
         <StatCard
           title="Working Hours"
-          value={formatWorkingHours(data?.monthlyStats?.totalWorkingHours, { emptyValue: '0h 0m' })}
+          value={formatWorkingHours(localMonthStats.totalWorkingHours, { emptyValue: '0h 0m' })}
           subtitle="Total this month"
           icon={<WorkHistoryIcon className="w-6 h-6" />}
           color="bg-green-50 text-green-600"
@@ -1003,7 +1194,7 @@ const EmployeeDashboard = () => {
         />
         <StatCard
           title="Avg Hours/Day"
-          value={formatWorkingHours(data?.monthlyStats?.averageHours, { emptyValue: '0h 0m' })}
+          value={formatWorkingHours(localMonthStats.averageHours, { emptyValue: '0h 0m' })}
           subtitle="This month"
           icon={<TrendingUpIcon className="w-6 h-6" />}
           color="bg-purple-50 text-purple-600"
@@ -1023,7 +1214,7 @@ const EmployeeDashboard = () => {
         ) : (
           <StatCard
             title="Half Days"
-            value={data?.monthlyStats?.halfDays || 0}
+            value={localMonthStats.halfDays}
             subtitle="This month"
             icon={<TimerOffIcon className="w-6 h-6" />}
             color="bg-orange-50 text-orange-600"
@@ -1032,7 +1223,7 @@ const EmployeeDashboard = () => {
         )}
       </div>
 
-      {/* Quick Actions & Payroll - Keep your existing code */}
+      {/* Quick Actions & Payroll */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="space-y-4">
           <h3 className="text-lg font-semibold text-gray-900 flex items-center">
@@ -1126,7 +1317,7 @@ const EmployeeDashboard = () => {
         </Card>
       </div>
 
-            {/* Upcoming Leaves */}
+      {/* Upcoming Leaves */}
       <Card className="bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700">
         <Card.Header className="border-b border-gray-200 dark:border-gray-700 pb-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -1223,7 +1414,7 @@ const EmployeeDashboard = () => {
             )}
           </div>
 
-          {/* Shift selection right below location (manual from dashboard modal) */}
+          {/* Shift selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Select Shift
@@ -1244,7 +1435,6 @@ const EmployeeDashboard = () => {
                     shiftName: shift?.name || shift?.shiftName || null,
                   });
                 }}
-
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
               >
                 <option value="">Select shift</option>

@@ -133,20 +133,15 @@ const collectTitles = (records) => {
 };
 
 // ============================================================
-// getSessions — exhaustive extractor covering every API shape
+// getSessions
 // ============================================================
 const getSessions = (record, attendanceMap = {}) => {
-  // Shape A: nested sessions array inside attendance object
   if (Array.isArray(record.attendance?.sessions) && record.attendance.sessions.length > 0) {
     return record.attendance.sessions;
   }
-
-  // Shape B: top-level sessions array
   if (Array.isArray(record.sessions) && record.sessions.length > 0) {
     return record.sessions;
   }
-
-  // Shape E: attendance is just an ID reference → look up from attendanceMap
   const attId =
     (typeof record.attendance === 'string' ? record.attendance : null) ||
     (typeof record.attendance?._id === 'string' ? record.attendance._id : null) ||
@@ -163,7 +158,6 @@ const getSessions = (record, attendanceMap = {}) => {
     if (ci || co) return [{ checkIn: ci, checkOut: co, workingHours: wh }];
   }
 
-  // Shape C: nested attendance object with flat fields
   if (record.attendance && typeof record.attendance === 'object') {
     const ci = record.attendance.checkIn;
     const co = record.attendance.checkOut;
@@ -171,7 +165,6 @@ const getSessions = (record, attendanceMap = {}) => {
     if (ci || co) return [{ checkIn: ci, checkOut: co, workingHours: wh }];
   }
 
-  // Shape D: fully flat fields on the record
   const ci = record.checkIn;
   const co = record.checkOut;
   const wh = record.workingHours;
@@ -181,31 +174,39 @@ const getSessions = (record, attendanceMap = {}) => {
 };
 
 // ============================================================
-// getTotalWorkingHours — FIXED: Always sums sessions first
+// getTotalWorkingHours
 // ============================================================
 const getTotalWorkingHours = (record, sessions, attendanceMap = {}) => {
-  // 1. ALWAYS sum sessions first if they exist (most accurate for multi-session)
   if (sessions && sessions.length > 0) {
     const summed = sessions.reduce((s, sess) => s + (Number(sess.workingHours) || 0), 0);
     if (summed > 0) return summed;
   }
 
-  // 2. Fallback: Try attendanceMap by ID
   const attId =
     (typeof record.attendance === 'string' ? record.attendance : null) ||
     (typeof record.attendance?._id === 'string' ? record.attendance._id : null) ||
     (typeof record.attendanceId === 'string' ? record.attendanceId : null);
-    
+
   if (attId && attendanceMap[attId]?.workingHours != null) {
     return Number(attendanceMap[attId].workingHours);
   }
 
-  // 3. Fallback: Top-level workingHours (only used if no sessions found)
   const topLevel = record.attendance?.workingHours ?? record.workingHours;
   if (topLevel != null && Number(topLevel) > 0) return Number(topLevel);
 
   return 0;
 };
+
+// ============================================================
+// FIX 1: Sort sessions by checkIn ascending before rendering
+// so Session 1 is always the earliest (first) session.
+// ============================================================
+const sortSessionsByTime = (sessions) =>
+  [...sessions].sort((a, b) => {
+    const ta = a.checkIn ? new Date(a.checkIn).getTime() : Infinity;
+    const tb = b.checkIn ? new Date(b.checkIn).getTime() : Infinity;
+    return ta - tb;
+  });
 
 // ============================================================
 // Cell components
@@ -219,7 +220,7 @@ const CheckInCell = ({ sessions }) => {
     <div className="space-y-1">
       {sessions.map((s, idx) => (
         <div key={idx} className="text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
-          <span className="text-xs font-semibold text-gray-400 mr-1">Time {idx + 1}:</span>
+          <span className="text-xs font-semibold text-gray-400 mr-1">Session {idx + 1}:</span>
           {formatTime(s.checkIn)}
         </div>
       ))}
@@ -236,7 +237,7 @@ const CheckOutCell = ({ sessions }) => {
     <div className="space-y-1">
       {sessions.map((s, idx) => (
         <div key={idx} className="text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
-          <span className="text-xs font-semibold text-gray-400 mr-1">Time {idx + 1}:</span>
+          <span className="text-xs font-semibold text-gray-400 mr-1">Session {idx + 1}:</span>
           {formatTime(s.checkOut)}
         </div>
       ))}
@@ -270,12 +271,12 @@ const WorkingHoursCell = ({ sessions, total }) => {
 const exportCheckIn = (sessions) => {
   if (!sessions.length) return '--';
   if (sessions.length === 1) return formatTime(sessions[0].checkIn);
-  return sessions.map((s, i) => `Time ${i + 1}: ${formatTime(s.checkIn)}`).join(' | ');
+  return sessions.map((s, i) => `Session ${i + 1}: ${formatTime(s.checkIn)}`).join(' | ');
 };
 const exportCheckOut = (sessions) => {
   if (!sessions.length) return '--';
   if (sessions.length === 1) return formatTime(sessions[0].checkOut);
-  return sessions.map((s, i) => `Time ${i + 1}: ${formatTime(s.checkOut)}`).join(' | ');
+  return sessions.map((s, i) => `Session ${i + 1}: ${formatTime(s.checkOut)}`).join(' | ');
 };
 
 // ============================================================
@@ -298,10 +299,13 @@ const MyDailyWork = () => {
   const now = new Date();
   const [dailyUpdateModalOpen, setDailyUpdateModalOpen] = useState(false);
   const [activeAttendanceId, setActiveAttendanceId]     = useState(null);
+
+  // FIX 2: Track which record is being edited so we can pass its attendanceId
+  const [editingRecord, setEditingRecord] = useState(null);
+
   const [dailyMonth, setDailyMonth] = useState(String(now.getMonth() + 1).padStart(2, '0'));
   const [dailyYear,  setDailyYear]  = useState(String(now.getFullYear()));
 
-  // enrichedUpdates = dailyUpdates merged with attendance sessions from attendanceMap
   const [enrichedUpdates, setEnrichedUpdates] = useState([]);
   const [dailyLoading, setDailyLoading]       = useState(true);
 
@@ -333,17 +337,11 @@ const MyDailyWork = () => {
     }
   };
 
-  // ------------------------------------------------------------------
-  // Core loader: fetch daily updates + attendance for the month,
-  // then build an attendanceMap keyed by _id AND by local date string
-  // so we can enrich every daily-update record with full sessions data.
-  // ------------------------------------------------------------------
   const loadDailyUpdates = async () => {
     setDailyLoading(true);
     try {
       const month = `${dailyYear}-${dailyMonth}`;
 
-      // Fetch both in parallel
       const [dailyData, rawAttendance] = await Promise.allSettled([
         dailyUpdateService.getMyUpdates(month),
         attendanceService.getMyAttendance(Number(dailyMonth), Number(dailyYear)),
@@ -352,56 +350,45 @@ const MyDailyWork = () => {
       const updates = Array.isArray(dailyData.value?.updates) ? dailyData.value.updates : [];
       const attRecords = Array.isArray(rawAttendance.value) ? rawAttendance.value : [];
 
-      // Build attendanceMap: keyed by _id AND by local date string
       const attendanceMap = {};
-
-      // Group raw attendance records by date (handles multi-session same date)
       const byDate = {};
+
       for (const rec of attRecords) {
         const dateStr = toLocalDateStr(rec.date || rec.checkIn);
         if (!dateStr) continue;
-        
-        // Initialize date group if not exists
+
         if (!byDate[dateStr]) {
-          byDate[dateStr] = {
-            _id: rec._id,
-            sessions: [],
-            workingHours: 0,
-          };
+          byDate[dateStr] = { _id: rec._id, sessions: [], workingHours: 0 };
         }
-        
-        // Add this record as a session ONLY if it has check-in/out data
+
         if (rec.checkIn || rec.checkOut) {
           byDate[dateStr].sessions.push({
             checkIn: rec.checkIn,
             checkOut: rec.checkOut,
             workingHours: rec.workingHours,
           });
-          // Accumulate hours correctly
           byDate[dateStr].workingHours += Number(rec.workingHours) || 0;
         }
-        
-        // Index by _id so Shape E look-ups work
+
         attendanceMap[String(rec._id)] = byDate[dateStr];
       }
 
-      // Also index by date string for Shape E where we only have a date
       for (const [dateStr, grouped] of Object.entries(byDate)) {
         attendanceMap[dateStr] = grouped;
       }
 
-      // Enrich each daily update record with the attendance sessions for its date
       const enriched = updates.map((record) => {
         const dateStr = toLocalDateStr(record.date);
-        
-        // Try to get sessions from the record itself first, then attendanceMap by date
+
         const sessions = getSessions(record, attendanceMap);
-        const resolvedSessions =
+        const rawSessions =
           sessions.length > 0
             ? sessions
             : (dateStr && attendanceMap[dateStr]?.sessions) || [];
 
-        // Calculate total using the FIXED helper
+        // FIX 1 applied here: sort sessions by checkIn ascending
+        const resolvedSessions = sortSessionsByTime(rawSessions);
+
         const total = getTotalWorkingHours(record, resolvedSessions, attendanceMap)
           || (dateStr && attendanceMap[dateStr]?.workingHours)
           || 0;
@@ -418,10 +405,37 @@ const MyDailyWork = () => {
     }
   };
 
-  const handleDailyUpdateSubmitted = () => { loadDailyUpdates(); };
+  const handleDailyUpdateSubmitted = () => {
+    setEditingRecord(null);
+    loadDailyUpdates();
+  };
 
-  const isTodayRecord     = (record) => new Date(record.date).toDateString() === new Date().toDateString();
-  const isEditableRecord  = (record) => isTodayRecord(record) && record.isUserEditable !== false;
+  const isTodayRecord = (record) =>
+    new Date(record.date).toDateString() === new Date().toDateString();
+
+  // FIX 2: Editability is based solely on the 24-hour window —
+  // no check-in/check-out state required.
+  const isEditableRecord = (record) => {
+    if (!isTodayRecord(record)) return false;
+    if (record.isUserEditable === false) return false;
+    const submittedAt = record.updatedAt || record.createdAt || record.date;
+    if (!submittedAt) return true;
+    const hoursSince = (Date.now() - new Date(submittedAt).getTime()) / (1000 * 60 * 60);
+    return hoursSince <= 24;
+  };
+
+  // FIX 3: Resolve the attendanceId from the record itself so the modal
+  // can open without requiring the user to be actively checked in.
+  const handleEditRecord = (record) => {
+    setEditingRecord(record);
+    const recordAttId =
+      (typeof record.attendance === 'string' ? record.attendance : null) ||
+      (typeof record.attendance?._id === 'string' ? record.attendance._id : null) ||
+      (typeof record.attendanceId === 'string' ? record.attendanceId : null) ||
+      activeAttendanceId; // last resort fallback
+    setActiveAttendanceId(recordAttId);
+    setDailyUpdateModalOpen(true);
+  };
 
   const formatDailyDate = (value) => {
     const date = new Date(value);
@@ -523,7 +537,7 @@ const MyDailyWork = () => {
   return (
     <div className="space-y-6">
 
-      {/* ── Header ────────────────────────────────────────────────────── */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center space-x-4">
           <div className="p-3 bg-green-100 dark:bg-green-900 rounded-2xl flex-shrink-0">
@@ -552,7 +566,7 @@ const MyDailyWork = () => {
         </div>
       </div>
 
-      {/* ── Stats ─────────────────────────────────────────────────────── */}
+      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
         <Card>
           <Card.Content className="text-center p-4 sm:p-6">
@@ -578,7 +592,7 @@ const MyDailyWork = () => {
         </Card>
       </div>
 
-      {/* ── Today's Progress Updates ────────────────────────────────────── */}
+      {/* Today's Progress Updates */}
       <Card>
         <Card.Header>
           <Card.Title className="flex items-center">
@@ -654,7 +668,7 @@ const MyDailyWork = () => {
         </Card.Content>
       </Card>
 
-      {/* ── Daily Updates Table ─────────────────────────────────────────── */}
+      {/* Daily Updates Table */}
       <Card>
         <Card.Header>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -669,7 +683,7 @@ const MyDailyWork = () => {
               <div className="w-24">
                 <CustomSelect value={dailyYear} onChange={setDailyYear} options={yearOptions} />
               </div>
-              <Button onClick={() => setDailyUpdateModalOpen(true)} variant="outline" size="sm" className="flex items-center gap-1">
+              <Button onClick={() => { setEditingRecord(null); setDailyUpdateModalOpen(true); }} variant="outline" size="sm" className="flex items-center gap-1">
                 <UpdateIcon className="w-4 h-4" />Log Today
               </Button>
               <Button
@@ -721,41 +735,31 @@ const MyDailyWork = () => {
                     const total    = record._totalHours || 0;
                     return (
                       <tr key={record._id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        {/* Date */}
                         <td className="px-3 py-3 align-top text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">
                           {formatDailyDate(record.date)}
                         </td>
-
-                        {/* Check In — one row per session */}
                         <td className="px-3 py-3 align-top whitespace-nowrap">
                           <CheckInCell sessions={sessions} />
                         </td>
-
-                        {/* Check Out — one row per session */}
                         <td className="px-3 py-3 align-top whitespace-nowrap">
                           <CheckOutCell sessions={sessions} />
                         </td>
-
-                        {/* Working Hours — total + per-session breakdown */}
                         <td className="px-3 py-3 align-top whitespace-nowrap">
                           <WorkingHoursCell sessions={sessions} total={total} />
                         </td>
-
-                        {/* Dynamic title columns */}
                         {dailyTitles.map((t) => (
                           <td key={t} className="px-3 py-3 align-top text-sm text-gray-700 dark:text-gray-200">
                             {getCell(record.rows, t)}
                           </td>
                         ))}
-
-                        {/* Actions */}
+                        {/* FIX 3: Edit opens without requiring active check-in */}
                         <td className="px-3 py-3 align-top text-center">
                           {isEditableRecord(record) && (
                             <button
                               type="button"
-                              onClick={() => setDailyUpdateModalOpen(true)}
+                              onClick={() => handleEditRecord(record)}
                               className="text-blue-600 hover:text-blue-800 dark:text-blue-300"
-                              title="Edit"
+                              title="Edit today's update (within 24 hours)"
                             >
                               <EditIcon className="w-4 h-4" />
                             </button>
@@ -774,7 +778,7 @@ const MyDailyWork = () => {
         </Card.Content>
       </Card>
 
-      {/* ── Modals ─────────────────────────────────────────────────────── */}
+      {/* Modals */}
       <AddProgressModal
         isOpen={modalOpen}
         onClose={() => { setModalOpen(false); setModalTask(null); }}
@@ -782,10 +786,15 @@ const MyDailyWork = () => {
         onSuccess={handleProgressUpdate}
       />
 
+      {/*
+        FIX 3: Pass existingRecord to DailyUpdateModal so it can pre-fill
+        fields and use the record's own attendanceId — no re-login needed.
+      */}
       <DailyUpdateModal
         isOpen={dailyUpdateModalOpen}
-        onClose={() => setDailyUpdateModalOpen(false)}
+        onClose={() => { setDailyUpdateModalOpen(false); setEditingRecord(null); }}
         attendanceId={activeAttendanceId}
+        existingRecord={editingRecord}
         onSubmitted={handleDailyUpdateSubmitted}
       />
 

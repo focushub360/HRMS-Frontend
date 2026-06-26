@@ -366,7 +366,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           {/* Version Info */}
           <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
             <p className="text-xs text-gray-400 text-center dark:text-gray-400">
-              HRM Pro v1.3.0
+              HRM Pro v1.0.0
             </p>
           </div>
         </div>
